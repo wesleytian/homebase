@@ -61,7 +61,7 @@ import { RandomInsightCard } from './RandomInsightCard';
 import { AddNoteModal } from './AddNoteModal';
 import { ViewNotesModal } from './ViewNotesModal';
 import { FriendsCard } from './FriendsCard';
-import { FriendsPage } from './FriendsPage';
+import { FriendsPage, SectionNames, SectionType } from './FriendsPage';
 import { CookieJar } from './CookieJar';
 import './App.css';
 
@@ -91,6 +91,13 @@ export default function App() {
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [showViewNotesModal, setShowViewNotesModal] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
+  const [friendsSectionNames, setFriendsSectionNames] = useState<SectionNames>(() => {
+    const saved = localStorage.getItem('friendsSectionNames');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    return { close: 'Close Friends', friends: 'Friends', nofollow: 'No Follow Up' };
+  });
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -493,6 +500,12 @@ export default function App() {
     }
   };
 
+  const handleSectionNameChange = (section: SectionType, name: string) => {
+    const updated = { ...friendsSectionNames, [section]: name };
+    setFriendsSectionNames(updated);
+    localStorage.setItem('friendsSectionNames', JSON.stringify(updated));
+  };
+
   // Cookie Jar handler
   const handleSaveCookieJar = async (content: string) => {
     await saveCookieJarContent(content);
@@ -520,10 +533,12 @@ export default function App() {
       <div className="app">
         <FriendsPage
           friends={friends}
+          sectionNames={friendsSectionNames}
           onBack={() => setCurrentPage('dashboard')}
           onAddFriend={handleAddFriend}
           onEditFriend={handleEditFriend}
           onDeleteFriend={handleDeleteFriend}
+          onSectionNameChange={handleSectionNameChange}
         />
       </div>
     );

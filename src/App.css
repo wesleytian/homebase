@@ -190,7 +190,7 @@ main {
   padding: 4px 4px;
   border-radius: 3px;
   cursor: grab;
-  transition: all 0.2s ease;
+  transition: background 0.2s ease, box-shadow 0.2s ease;
   position: relative;
 }
 
@@ -2002,6 +2002,23 @@ main {
   font-weight: 600;
   color: #2d2a26;
   margin: 0;
+}
+
+.section-title-edit {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #2d2a26;
+  border: none;
+  border-bottom: 1px solid #ccc;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  width: 140px;
+}
+
+.section-title-edit:focus {
+  border-bottom-color: #f5a623;
 }
 
 .add-pill-btn {

@@ -1,28 +1,40 @@
 import { useState, useEffect } from 'react';
 import { Friend, FriendTier } from './types';
 
+export type SectionType = 'close' | 'friends' | 'nofollow';
+
+export interface SectionNames {
+  close: string;
+  friends: string;
+  nofollow: string;
+}
+
 interface Props {
   friends: Friend[];
+  sectionNames: SectionNames;
   onBack: () => void;
   onAddFriend: (name: string, tier: FriendTier) => void;
   onEditFriend: (id: string, updates: Partial<Friend>) => void;
   onDeleteFriend: (id: string) => void;
+  onSectionNameChange: (section: SectionType, name: string) => void;
 }
-
-type SectionType = 'close' | 'friends' | 'nofollow';
 
 export function FriendsPage({
   friends,
+  sectionNames,
   onBack,
   onAddFriend,
   onEditFriend,
   onDeleteFriend,
+  onSectionNameChange,
 }: Props) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
   const [addingTo, setAddingTo] = useState<SectionType>('close');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [editingSectionTitle, setEditingSectionTitle] = useState<SectionType | null>(null);
+  const [editSectionName, setEditSectionName] = useState('');
 
   const closeFriends = friends.filter(f => f.tier === 1);
   const regularFriends = friends.filter(f => f.tier === 2);
@@ -140,11 +152,50 @@ export function FriendsPage({
   };
 
   const getSectionTitle = (section: SectionType) => {
-    switch (section) {
-      case 'close': return 'Close Friends';
-      case 'friends': return 'Friends';
-      case 'nofollow': return 'No Follow Up';
+    return sectionNames[section];
+  };
+
+  const startEditingSectionTitle = (section: SectionType) => {
+    setEditingSectionTitle(section);
+    setEditSectionName(sectionNames[section]);
+  };
+
+  const saveSectionTitle = () => {
+    if (editingSectionTitle && editSectionName.trim()) {
+      onSectionNameChange(editingSectionTitle, editSectionName.trim());
     }
+    setEditingSectionTitle(null);
+    setEditSectionName('');
+  };
+
+  const handleSectionTitleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      saveSectionTitle();
+    } else if (e.key === 'Escape') {
+      setEditingSectionTitle(null);
+      setEditSectionName('');
+    }
+  };
+
+  const renderSectionTitle = (section: SectionType) => {
+    if (editingSectionTitle === section) {
+      return (
+        <input
+          type="text"
+          className="section-title-edit"
+          value={editSectionName}
+          onChange={(e) => setEditSectionName(e.target.value)}
+          onBlur={saveSectionTitle}
+          onKeyDown={handleSectionTitleKeyDown}
+          autoFocus
+        />
+      );
+    }
+    return (
+      <h2 onClick={() => startEditingSectionTitle(section)} style={{ cursor: 'pointer' }}>
+        {getSectionTitle(section)}
+      </h2>
+    );
   };
 
   return (
@@ -158,7 +209,7 @@ export function FriendsPage({
         {/* Close Friends */}
         <div className="friends-list-section">
           <div className="friends-list-header">
-            <h2>{getSectionTitle('close')}</h2>
+            {renderSectionTitle('close')}
             <button className="add-pill-btn" onClick={() => openAddModal('close')}>+</button>
           </div>
           <div className="friends-pills">
@@ -173,7 +224,7 @@ export function FriendsPage({
         {/* Friends */}
         <div className="friends-list-section">
           <div className="friends-list-header">
-            <h2>{getSectionTitle('friends')}</h2>
+            {renderSectionTitle('friends')}
             <button className="add-pill-btn" onClick={() => openAddModal('friends')}>+</button>
           </div>
           <div className="friends-pills">
@@ -188,7 +239,7 @@ export function FriendsPage({
         {/* No Follow Up */}
         <div className="friends-list-section no-follow">
           <div className="friends-list-header">
-            <h2>{getSectionTitle('nofollow')}</h2>
+            {renderSectionTitle('nofollow')}
             <button className="add-pill-btn" onClick={() => openAddModal('nofollow')}>+</button>
           </div>
           <div className="friends-pills">
