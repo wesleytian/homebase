@@ -140,6 +140,48 @@ main {
   box-shadow: 0 2px 12px rgba(45, 42, 38, 0.06);
 }
 
+.todo-list.collapsed {
+  max-height: 450px;
+  overflow: hidden;
+  position: relative;
+}
+
+.todo-list.collapsed::after {
+  content: '';
+  position: absolute;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(to bottom, transparent, #fff);
+  pointer-events: none;
+}
+
+.todo-list.expanded {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.todo-expand-btn {
+  width: 100%;
+  padding: 10px;
+  margin-top: 8px;
+  background: #f8f6f3;
+  border: 1px dashed #e0dcd6;
+  border-radius: 6px;
+  color: #8b7355;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+}
+
+.todo-expand-btn:hover {
+  background: #f0ebe4;
+  border-color: #d0cbc4;
+}
+
 .todo-add-form {
   margin-bottom: 6px;
 }

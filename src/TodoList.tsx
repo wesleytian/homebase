@@ -31,6 +31,8 @@ interface DragState {
   position: DropPosition;
 }
 
+const TODO_LIMIT = 12;
+
 export function TodoList({
   todos,
   sections,
@@ -51,6 +53,7 @@ export function TodoList({
   const [newSection, setNewSection] = useState('');
   const [showSectionInput, setShowSectionInput] = useState(false);
   const [unsectionedHover, setUnsectionedHover] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const [dragState, setDragState] = useState<DragState>({
     type: null,
     draggedId: null,
@@ -222,9 +225,11 @@ export function TodoList({
     todos.find((t) => t.id === dragState.draggedId)?.sectionId !== null;
 
   const unsectionedTodos = todos.filter((t) => t.sectionId === null);
+  const totalTodos = todos.length;
+  const needsExpansion = totalTodos > TODO_LIMIT;
 
   return (
-    <div className="todo-list" onDragEnd={handleDragEnd}>
+    <div className={`todo-list ${expanded ? 'expanded' : ''} ${needsExpansion && !expanded ? 'collapsed' : ''}`} onDragEnd={handleDragEnd}>
       {showSectionInput ? (
         <form className="section-add-form" onSubmit={handleAddSection}>
           <input
@@ -298,6 +303,15 @@ export function TodoList({
           dragState={dragState}
         />
       ))}
+
+      {needsExpansion && (
+        <button
+          className="todo-expand-btn"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? 'Show less' : `Show all (${totalTodos} items)`}
+        </button>
+      )}
     </div>
   );
 }
