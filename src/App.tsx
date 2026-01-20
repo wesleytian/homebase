@@ -609,22 +609,6 @@ export default function App() {
               onViewAll={() => setShowViewNotesModal(true)}
             />
           </section>
-
-          <section className="app-section">
-            <h2>Close Friends</h2>
-            <FriendsCard
-              friends={friends}
-              onViewAll={() => setCurrentPage('friends')}
-            />
-          </section>
-
-          <section className="app-section">
-            <h2>Cookie Jar</h2>
-            <CookieJar
-              content={cookieJarContent}
-              onSave={handleSaveCookieJar}
-            />
-          </section>
         </div>
 
         <div className="column">
@@ -680,6 +664,22 @@ export default function App() {
                 onAdd={handleAddLifeGoal}
               />
             )}
+          </section>
+
+          <section className="app-section">
+            <h2>Close Friends</h2>
+            <FriendsCard
+              friends={friends}
+              onViewAll={() => setCurrentPage('friends')}
+            />
+          </section>
+
+          <section className="app-section">
+            <h2>Cookie Jar</h2>
+            <CookieJar
+              content={cookieJarContent}
+              onSave={handleSaveCookieJar}
+            />
           </section>
         </div>
       </main>
