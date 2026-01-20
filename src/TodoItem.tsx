@@ -8,6 +8,8 @@ interface Props {
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
   onEdit: (id: string, text: string) => void;
+  onIndent: (id: string, indent: number) => void;
+  canIndent: boolean;
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragOver: (e: React.DragEvent, id: string) => void;
   onDragLeave: () => void;
@@ -21,6 +23,8 @@ export function TodoItem({
   onToggle,
   onDelete,
   onEdit,
+  onIndent,
+  canIndent,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -31,6 +35,7 @@ export function TodoItem({
   const [isEditing, setIsEditing] = useState(false);
   const [editText, setEditText] = useState(todo.text);
   const inputRef = useRef<HTMLInputElement>(null);
+  const indent = todo.indent ?? 0;
 
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -55,12 +60,26 @@ export function TodoItem({
     } else if (e.key === 'Escape') {
       setEditText(todo.text);
       setIsEditing(false);
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      if (e.shiftKey) {
+        // Shift+Tab: decrease indent
+        if (indent > 0) {
+          onIndent(todo.id, indent - 1);
+        }
+      } else {
+        // Tab: increase indent (only if canIndent)
+        if (canIndent && indent < 3) {
+          onIndent(todo.id, indent + 1);
+        }
+      }
     }
   };
 
   return (
     <div
       className={`todo-item ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${isEditing ? 'editing' : ''}`}
+      style={{ marginLeft: `${indent * 24}px` }}
       draggable={!isEditing}
       onDragStart={(e) => onDragStart(e, todo.id)}
       onDragOver={(e) => onDragOver(e, todo.id)}

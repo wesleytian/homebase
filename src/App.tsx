@@ -283,6 +283,16 @@ export default function App() {
     }
   };
 
+  const handleIndentTodo = async (id: string, indent: number) => {
+    const todo = todos.find((t) => t.id === id);
+    if (todo) {
+      await withSaveStatus(async () => {
+        await updateTodo({ ...todo, indent });
+        await loadData();
+      });
+    }
+  };
+
   const handleReorderTodos = async (reorderedTodos: Todo[]) => {
     setTodos(reorderedTodos);
     await withSaveStatus(() => reorderTodos(reorderedTodos));
@@ -552,6 +562,7 @@ export default function App() {
               onToggleTodo={handleToggleTodo}
               onDeleteTodo={handleDeleteTodo}
               onEditTodo={handleEditTodo}
+              onIndentTodo={handleIndentTodo}
               onAddTodo={handleAddTodo}
               onMoveTodo={handleMoveTodo}
               onReorderTodos={handleReorderTodos}

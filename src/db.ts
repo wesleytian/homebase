@@ -124,7 +124,7 @@ export async function getAllTodos(): Promise<Todo[]> {
   return (data || []).map((t) => toCamel<Todo>(t));
 }
 
-export async function addTodo(text: string, sectionId: string | null = null): Promise<Todo> {
+export async function addTodo(text: string, sectionId: string | null = null, indent: number = 0): Promise<Todo> {
   const { data: existing } = await supabase.from('todos').select('order').order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
@@ -135,6 +135,7 @@ export async function addTodo(text: string, sectionId: string | null = null): Pr
       completed: false,
       section_id: sectionId,
       order: maxOrder + 1,
+      indent: indent,
       created_at: Date.now(),
     })
     .select()
@@ -151,6 +152,7 @@ export async function updateTodo(todo: Todo): Promise<void> {
       completed: todo.completed,
       section_id: todo.sectionId,
       order: todo.order,
+      indent: todo.indent ?? 0,
     })
     .eq('id', todo.id);
   if (error) throw error;

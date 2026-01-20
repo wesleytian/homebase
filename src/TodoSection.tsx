@@ -37,6 +37,7 @@ interface Props {
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
   onEditTodo: (id: string, text: string) => void;
+  onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string) => void;
   onTodoDragStart: (e: React.DragEvent, id: string) => void;
   onTodoDragOver: (e: React.DragEvent, id: string) => void;
@@ -59,6 +60,7 @@ export function TodoSection({
   onToggleTodo,
   onDeleteTodo,
   onEditTodo,
+  onIndentTodo,
   onAddTodo,
   onTodoDragStart,
   onTodoDragOver,
@@ -216,13 +218,15 @@ export function TodoSection({
       </div>
       {!section.collapsed && (
         <div className="section-content">
-          {todos.map((todo) => (
+          {todos.map((todo, index) => (
             <TodoItem
               key={todo.id}
               todo={todo}
               onToggle={onToggleTodo}
               onDelete={onDeleteTodo}
               onEdit={onEditTodo}
+              onIndent={onIndentTodo}
+              canIndent={index > 0}
               onDragStart={onTodoDragStart}
               onDragOver={onTodoDragOver}
               onDragLeave={onTodoDragLeave}

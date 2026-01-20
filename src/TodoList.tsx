@@ -9,6 +9,7 @@ interface Props {
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
   onEditTodo: (id: string, text: string) => void;
+  onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string | null) => void;
   onMoveTodo: (id: string, newSectionId: string | null) => void;
   onReorderTodos: (todos: Todo[]) => void;
@@ -36,6 +37,7 @@ export function TodoList({
   onToggleTodo,
   onDeleteTodo,
   onEditTodo,
+  onIndentTodo,
   onAddTodo,
   onMoveTodo,
   onReorderTodos,
@@ -252,13 +254,15 @@ export function TodoList({
         onDragLeave={() => setUnsectionedHover(false)}
         onDrop={handleDropOnUnsectioned}
       >
-        {unsectionedTodos.map((todo) => (
+        {unsectionedTodos.map((todo, index) => (
           <TodoItem
             key={todo.id}
             todo={todo}
             onToggle={onToggleTodo}
             onDelete={onDeleteTodo}
             onEdit={onEditTodo}
+            onIndent={onIndentTodo}
+            canIndent={index > 0}
             onDragStart={handleTodoDragStart}
             onDragOver={handleTodoDragOver}
             onDragLeave={handleDragLeave}
@@ -280,6 +284,7 @@ export function TodoList({
           onToggleTodo={onToggleTodo}
           onDeleteTodo={onDeleteTodo}
           onEditTodo={onEditTodo}
+          onIndentTodo={onIndentTodo}
           onAddTodo={onAddTodo}
           onTodoDragStart={handleTodoDragStart}
           onTodoDragOver={handleTodoDragOver}

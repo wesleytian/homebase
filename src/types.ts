@@ -24,6 +24,7 @@ export interface Todo {
   completed: boolean;
   sectionId: string | null;
   order: number;
+  indent: number; // 0 = no indent, 1 = one level, etc.
   createdAt: number;
 }
 
