@@ -93,6 +93,7 @@ export default function App() {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const weekStart = getWeekStart();
 
   // Hash-based routing for browser back/forward support
@@ -177,6 +178,20 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
+  // Helper to track save status
+  const withSaveStatus = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
+    setSaveStatus('saving');
+    try {
+      const result = await operation();
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 2000);
+      return result;
+    } catch (error) {
+      setSaveStatus('idle');
+      throw error;
+    }
+  }, []);
+
   // Check if journal needs attention (show at top)
   const journalNeedsAttention = (() => {
     // No entry yet - show at top
@@ -235,48 +250,60 @@ export default function App() {
 
   // Todo handlers
   const handleAddTodo = async (text: string, sectionId: string | null) => {
-    await addTodo(text, sectionId);
-    loadData();
+    await withSaveStatus(async () => {
+      await addTodo(text, sectionId);
+      await loadData();
+    });
   };
 
   const handleToggleTodo = async (id: string) => {
     const todo = todos.find((t) => t.id === id);
     if (todo) {
-      await updateTodo({ ...todo, completed: !todo.completed });
-      loadData();
+      await withSaveStatus(async () => {
+        await updateTodo({ ...todo, completed: !todo.completed });
+        await loadData();
+      });
     }
   };
 
   const handleDeleteTodo = async (id: string) => {
-    await deleteTodo(id);
-    loadData();
+    await withSaveStatus(async () => {
+      await deleteTodo(id);
+      await loadData();
+    });
   };
 
   const handleEditTodo = async (id: string, text: string) => {
     const todo = todos.find((t) => t.id === id);
     if (todo) {
-      await updateTodo({ ...todo, text });
-      loadData();
+      await withSaveStatus(async () => {
+        await updateTodo({ ...todo, text });
+        await loadData();
+      });
     }
   };
 
   const handleReorderTodos = async (reorderedTodos: Todo[]) => {
     setTodos(reorderedTodos);
-    await reorderTodos(reorderedTodos);
+    await withSaveStatus(() => reorderTodos(reorderedTodos));
   };
 
   const handleMoveTodo = async (id: string, newSectionId: string | null) => {
     const todo = todos.find((t) => t.id === id);
     if (todo) {
-      await updateTodo({ ...todo, sectionId: newSectionId });
-      loadData();
+      await withSaveStatus(async () => {
+        await updateTodo({ ...todo, sectionId: newSectionId });
+        await loadData();
+      });
     }
   };
 
   // Section handlers
   const handleAddSection = async (name: string) => {
-    await addSection(name);
-    loadData();
+    await withSaveStatus(async () => {
+      await addSection(name);
+      await loadData();
+    });
   };
 
   const handleToggleSection = async (id: string) => {
@@ -288,23 +315,25 @@ export default function App() {
   };
 
   const handleDeleteSection = async (id: string) => {
-    if (confirm('Delete this section? Todos will be moved to the main list.')) {
+    await withSaveStatus(async () => {
       await deleteSection(id);
-      loadData();
-    }
+      await loadData();
+    });
   };
 
   const handleEditSection = async (id: string, name: string) => {
     const section = sections.find((s) => s.id === id);
     if (section) {
-      await updateSection({ ...section, name });
-      loadData();
+      await withSaveStatus(async () => {
+        await updateSection({ ...section, name });
+        await loadData();
+      });
     }
   };
 
   const handleReorderSections = async (reorderedSections: ToggleSection[]) => {
     setSections(reorderedSections);
-    await reorderSections(reorderedSections);
+    await withSaveStatus(() => reorderSections(reorderedSections));
   };
 
   const handleMoveToToday = async (sourceSectionId: string) => {
@@ -495,6 +524,11 @@ export default function App() {
       <header>
         <h1>Command Center</h1>
         <p className="week-range">{formatWeekRange(weekStart)}</p>
+        {saveStatus !== 'idle' && (
+          <span className={`save-status ${saveStatus}`}>
+            {saveStatus === 'saving' ? 'Saving...' : '✓ Saved'}
+          </span>
+        )}
       </header>
 
       <main>

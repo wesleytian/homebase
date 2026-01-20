@@ -38,6 +38,24 @@ header h1 {
   font-weight: 500;
 }
 
+.save-status {
+  font-size: 0.7rem;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.save-status.saving {
+  color: #8a8279;
+  background: #f5f0eb;
+}
+
+.save-status.saved {
+  color: #27ae60;
+  background: #e8f5e9;
+}
+
 .loading {
   text-align: center;
   padding: 40px;
