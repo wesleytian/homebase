@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Todo, ToggleSection } from './types';
 import { TodoItem, DropPosition } from './TodoItem';
 
@@ -75,6 +75,23 @@ export function TodoSection({
   const [todoHovering, setTodoHovering] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(section.name);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const deleteConfirmRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (showDeleteConfirm) {
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          onDeleteSection(section.id);
+          setShowDeleteConfirm(false);
+        } else if (e.key === 'Escape') {
+          setShowDeleteConfirm(false);
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }
+  }, [showDeleteConfirm, section.id, onDeleteSection]);
 
   const handleEditSubmit = () => {
     if (editValue.trim() && editValue.trim() !== section.name) {
@@ -176,11 +193,26 @@ export function TodoSection({
           className="section-delete"
           onClick={(e) => {
             e.stopPropagation();
-            onDeleteSection(section.id);
+            setShowDeleteConfirm(true);
           }}
         >
           ×
         </button>
+        {showDeleteConfirm && (
+          <div className="delete-confirm-overlay" onClick={() => setShowDeleteConfirm(false)}>
+            <div className="delete-confirm-modal" onClick={(e) => e.stopPropagation()} ref={deleteConfirmRef}>
+              <p>Delete "{section.name}"?</p>
+              <p className="delete-confirm-hint">Press Enter to confirm or Escape to cancel</p>
+              <div className="delete-confirm-buttons">
+                <button onClick={() => setShowDeleteConfirm(false)}>Cancel</button>
+                <button className="delete-confirm-yes" onClick={() => {
+                  onDeleteSection(section.id);
+                  setShowDeleteConfirm(false);
+                }}>Delete</button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
       {!section.collapsed && (
         <div className="section-content">
