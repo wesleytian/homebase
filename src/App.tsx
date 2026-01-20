@@ -61,7 +61,7 @@ import { RandomInsightCard } from './RandomInsightCard';
 import { AddNoteModal } from './AddNoteModal';
 import { ViewNotesModal } from './ViewNotesModal';
 import { FriendsCard } from './FriendsCard';
-import { FriendsPage, SectionNames, SectionType } from './FriendsPage';
+import { FriendsPage, FriendSection, DEFAULT_SECTIONS } from './FriendsPage';
 import { CookieJar } from './CookieJar';
 import './App.css';
 
@@ -91,12 +91,12 @@ export default function App() {
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [showViewNotesModal, setShowViewNotesModal] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [friendsSectionNames, setFriendsSectionNames] = useState<SectionNames>(() => {
-    const saved = localStorage.getItem('friendsSectionNames');
+  const [friendsSections, setFriendsSections] = useState<FriendSection[]>(() => {
+    const saved = localStorage.getItem('friendsSections');
     if (saved) {
       return JSON.parse(saved);
     }
-    return { close: 'Close Friends', friends: 'Friends', nofollow: 'No Follow Up' };
+    return DEFAULT_SECTIONS;
   });
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -500,10 +500,9 @@ export default function App() {
     }
   };
 
-  const handleSectionNameChange = (section: SectionType, name: string) => {
-    const updated = { ...friendsSectionNames, [section]: name };
-    setFriendsSectionNames(updated);
-    localStorage.setItem('friendsSectionNames', JSON.stringify(updated));
+  const handleFriendsSectionsChange = (sections: FriendSection[]) => {
+    setFriendsSections(sections);
+    localStorage.setItem('friendsSections', JSON.stringify(sections));
   };
 
   // Cookie Jar handler
@@ -533,12 +532,12 @@ export default function App() {
       <div className="app">
         <FriendsPage
           friends={friends}
-          sectionNames={friendsSectionNames}
+          sections={friendsSections}
           onBack={() => setCurrentPage('dashboard')}
           onAddFriend={handleAddFriend}
           onEditFriend={handleEditFriend}
           onDeleteFriend={handleDeleteFriend}
-          onSectionNameChange={handleSectionNameChange}
+          onSectionsChange={handleFriendsSectionsChange}
         />
       </div>
     );
