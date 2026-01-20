@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(start-lesson)",
+      "Bash(npm create:*)",
+      "Bash(npm install:*)",
+      "Bash(yarn install)",
+      "Bash(yarn run tsc:*)",
+      "Bash(yarn dev)",
+      "Bash(npx tsc:*)",
+      "Bash(wc:*)",
+      "Bash(lsof:*)",
+      "Bash(npm run build:*)",
+      "Bash(npm run dev:*)",
+      "Bash(xargs kill:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}
