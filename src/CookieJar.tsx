@@ -8,8 +8,10 @@ interface Props {
 export function CookieJar({ content, onSave }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [value, setValue] = useState(content);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
+  const savedTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     setValue(content);
@@ -27,8 +29,16 @@ export function CookieJar({ content, onSave }: Props) {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
+    if (savedTimeoutRef.current) {
+      clearTimeout(savedTimeoutRef.current);
+    }
+    setSaveStatus('saving');
     saveTimeoutRef.current = window.setTimeout(() => {
       onSave(newValue);
+      setSaveStatus('saved');
+      savedTimeoutRef.current = window.setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000);
     }, 500);
   }, [onSave]);
 
@@ -38,11 +48,14 @@ export function CookieJar({ content, onSave }: Props) {
     autoSave(newValue);
   };
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+      }
+      if (savedTimeoutRef.current) {
+        clearTimeout(savedTimeoutRef.current);
       }
     };
   }, []);
@@ -95,7 +108,11 @@ export function CookieJar({ content, onSave }: Props) {
             />
             <div className="cookie-jar-modal-footer">
               <span className="cookie-jar-count-footer">{itemCount} {itemCount === 1 ? 'item' : 'items'}</span>
-              <span className="auto-save-indicator">Auto-saving</span>
+              {saveStatus !== 'idle' && (
+                <span className={`auto-save-indicator ${saveStatus}`}>
+                  {saveStatus === 'saving' ? 'Saving...' : '✓ Saved'}
+                </span>
+              )}
             </div>
           </div>
         </div>

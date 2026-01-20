@@ -1190,6 +1190,15 @@ main {
   font-style: italic;
 }
 
+.auto-save-indicator.saving {
+  color: #a39b91;
+}
+
+.auto-save-indicator.saved {
+  color: #4ecdc4;
+  font-style: normal;
+}
+
 .journal-close-btn {
   background: none;
   border: none;

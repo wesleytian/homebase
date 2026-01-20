@@ -27,8 +27,10 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
     amazingThings: '',
     learned: '',
   });
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const saveTimeoutRef = useRef<number | null>(null);
+  const savedTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (entry) {
@@ -56,8 +58,16 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
     if (saveTimeoutRef.current) {
       clearTimeout(saveTimeoutRef.current);
     }
+    if (savedTimeoutRef.current) {
+      clearTimeout(savedTimeoutRef.current);
+    }
+    setSaveStatus('saving');
     saveTimeoutRef.current = window.setTimeout(() => {
       onSave({ ...data, date });
+      setSaveStatus('saved');
+      savedTimeoutRef.current = window.setTimeout(() => {
+        setSaveStatus('idle');
+      }, 2000);
     }, 500);
   }, [date, onSave]);
 
@@ -80,11 +90,14 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
     return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
   };
 
-  // Cleanup timeout on unmount
+  // Cleanup timeouts on unmount
   useEffect(() => {
     return () => {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
+      }
+      if (savedTimeoutRef.current) {
+        clearTimeout(savedTimeoutRef.current);
       }
     };
   }, []);
@@ -95,7 +108,11 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
         <div className="journal-editor-header">
           <h2>{formatDate(date)}</h2>
           <div className="journal-header-right">
-            <span className="auto-save-indicator">Auto-saving</span>
+            {saveStatus !== 'idle' && (
+              <span className={`auto-save-indicator ${saveStatus}`}>
+                {saveStatus === 'saving' ? 'Saving...' : '✓ Saved'}
+              </span>
+            )}
             <button className="journal-close-btn" onClick={onClose}>×</button>
           </div>
         </div>
