@@ -344,6 +344,23 @@ main {
   position: relative;
 }
 
+.todo-section.today-section {
+  background: linear-gradient(135deg, #fffdf8 0%, #fff9ef 100%);
+  margin: 8px -10px 0 -10px;
+  padding: 10px;
+  border-radius: 8px;
+  border-top: none;
+  border-left: 3px solid #f5a623;
+}
+
+.todo-section.today-section .section-header {
+  font-weight: 600;
+}
+
+.todo-section.today-section .section-name {
+  color: #d4880f;
+}
+
 .todo-section::before {
   content: '';
   position: absolute;
@@ -2020,19 +2037,21 @@ main {
   flex: 1;
 }
 
-.add-section-btn {
+.friends-page-simple .add-section-btn {
   padding: 6px 12px;
-  background: #f5a623;
-  border: none;
+  background: none;
+  border: 1px dashed #d0cbc4;
   border-radius: 6px;
-  color: white;
+  color: #a39b91;
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 
-.add-section-btn:hover {
-  background: #e6951a;
+.friends-page-simple .add-section-btn:hover {
+  background: #f8f6f3;
+  border-color: #b0a89e;
+  color: #8b7355;
 }
 
 .section-actions {

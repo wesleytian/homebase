@@ -112,10 +112,11 @@ export function TodoSection({
   const isSectionDropTarget = dragState.targetId === section.id && dragState.targetType === 'section';
   const isSectionDragging = dragState.draggedId === section.id && dragState.type === 'section';
   const isTodoDropTarget = todoHovering && dragState.type === 'todo';
+  const isToday = section.name === getTodayFormatted();
 
   return (
     <div
-      className={`todo-section ${isSectionDropTarget ? `drop-${dragState.position}` : ''}`}
+      className={`todo-section ${isSectionDropTarget ? `drop-${dragState.position}` : ''} ${isToday ? 'today-section' : ''}`}
       onDragOver={(e) => onSectionDragOver(e, section.id)}
       onDrop={(e) => onSectionDrop(e, section.id)}
     >
