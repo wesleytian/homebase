@@ -9,6 +9,8 @@ interface Props {
   onDeleteFriend: (id: string) => void;
 }
 
+type SectionType = 'close' | 'friends' | 'nofollow';
+
 export function FriendsPage({
   friends,
   onBack,
@@ -18,21 +20,25 @@ export function FriendsPage({
 }: Props) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
-  const [addingTo, setAddingTo] = useState<'close' | 'friends'>('close');
+  const [addingTo, setAddingTo] = useState<SectionType>('close');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
 
   const closeFriends = friends.filter(f => f.tier === 1);
-  const regularFriends = friends.filter(f => f.tier !== 1);
+  const regularFriends = friends.filter(f => f.tier === 2);
+  const noFollowFriends = friends.filter(f => f.tier === 3 || f.tier === 4);
 
   const handleAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (newName.trim()) {
-      onAddFriend(newName.trim(), addingTo === 'close' ? 1 : 2);
+      const tier: FriendTier = addingTo === 'close' ? 1 : addingTo === 'friends' ? 2 : 3;
+      onAddFriend(newName.trim(), tier);
       setNewName('');
       setShowAddModal(false);
     }
   };
 
-  const openAddModal = (type: 'close' | 'friends') => {
+  const openAddModal = (type: SectionType) => {
     setAddingTo(type);
     setShowAddModal(true);
   };
@@ -49,8 +55,96 @@ export function FriendsPage({
     }
   }, [showAddModal]);
 
-  const moveFriend = (friend: Friend, toClose: boolean) => {
-    onEditFriend(friend.id, { tier: toClose ? 1 : 2 });
+  const moveFriend = (friend: Friend, targetTier: FriendTier) => {
+    onEditFriend(friend.id, { tier: targetTier });
+  };
+
+  const startEditing = (friend: Friend) => {
+    setEditingId(friend.id);
+    setEditName(friend.name);
+  };
+
+  const saveEdit = () => {
+    if (editingId && editName.trim()) {
+      onEditFriend(editingId, { name: editName.trim() });
+    }
+    setEditingId(null);
+    setEditName('');
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      saveEdit();
+    } else if (e.key === 'Escape') {
+      setEditingId(null);
+      setEditName('');
+    }
+  };
+
+  const renderFriendPill = (friend: Friend, section: SectionType) => {
+    const isEditing = editingId === friend.id;
+
+    return (
+      <div key={friend.id} className={`friend-pill ${section === 'close' ? 'close' : ''}`}>
+        {isEditing ? (
+          <input
+            type="text"
+            className="friend-pill-edit"
+            value={editName}
+            onChange={(e) => setEditName(e.target.value)}
+            onBlur={saveEdit}
+            onKeyDown={handleEditKeyDown}
+            autoFocus
+          />
+        ) : (
+          <span className="friend-pill-name" onClick={() => startEditing(friend)}>
+            {friend.name}
+          </span>
+        )}
+        <div className="friend-pill-actions">
+          {section === 'close' && (
+            <button
+              className="friend-pill-move"
+              onClick={() => moveFriend(friend, 2)}
+              title="Move to Friends"
+            >↓</button>
+          )}
+          {section === 'friends' && (
+            <>
+              <button
+                className="friend-pill-move"
+                onClick={() => moveFriend(friend, 1)}
+                title="Move to Close Friends"
+              >↑</button>
+              <button
+                className="friend-pill-move"
+                onClick={() => moveFriend(friend, 3)}
+                title="Move to No Follow Up"
+              >↓</button>
+            </>
+          )}
+          {section === 'nofollow' && (
+            <button
+              className="friend-pill-move"
+              onClick={() => moveFriend(friend, 2)}
+              title="Move to Friends"
+            >↑</button>
+          )}
+          <button
+            className="friend-pill-delete"
+            onClick={() => onDeleteFriend(friend.id)}
+          >×</button>
+        </div>
+      </div>
+    );
+  };
+
+  const getSectionTitle = (section: SectionType) => {
+    switch (section) {
+      case 'close': return 'Close Friends';
+      case 'friends': return 'Friends';
+      case 'nofollow': return 'No Follow Up';
+    }
   };
 
   return (
@@ -61,56 +155,47 @@ export function FriendsPage({
       </div>
 
       <div className="friends-lists">
+        {/* Close Friends */}
         <div className="friends-list-section">
           <div className="friends-list-header">
-            <h2>Close Friends</h2>
+            <h2>{getSectionTitle('close')}</h2>
             <button className="add-pill-btn" onClick={() => openAddModal('close')}>+</button>
           </div>
           <div className="friends-pills">
             {closeFriends.length === 0 ? (
               <span className="empty-pill">No close friends yet</span>
             ) : (
-              closeFriends.map(friend => (
-                <div key={friend.id} className="friend-pill close">
-                  <span className="friend-pill-name">{friend.name}</span>
-                  <button
-                    className="friend-pill-move"
-                    onClick={() => moveFriend(friend, false)}
-                    title="Move to Friends"
-                  >↓</button>
-                  <button
-                    className="friend-pill-delete"
-                    onClick={() => onDeleteFriend(friend.id)}
-                  >×</button>
-                </div>
-              ))
+              closeFriends.map(friend => renderFriendPill(friend, 'close'))
             )}
           </div>
         </div>
 
+        {/* Friends */}
         <div className="friends-list-section">
           <div className="friends-list-header">
-            <h2>Friends</h2>
+            <h2>{getSectionTitle('friends')}</h2>
             <button className="add-pill-btn" onClick={() => openAddModal('friends')}>+</button>
           </div>
           <div className="friends-pills">
             {regularFriends.length === 0 ? (
               <span className="empty-pill">No friends yet</span>
             ) : (
-              regularFriends.map(friend => (
-                <div key={friend.id} className="friend-pill">
-                  <span className="friend-pill-name">{friend.name}</span>
-                  <button
-                    className="friend-pill-move"
-                    onClick={() => moveFriend(friend, true)}
-                    title="Move to Close Friends"
-                  >↑</button>
-                  <button
-                    className="friend-pill-delete"
-                    onClick={() => onDeleteFriend(friend.id)}
-                  >×</button>
-                </div>
-              ))
+              regularFriends.map(friend => renderFriendPill(friend, 'friends'))
+            )}
+          </div>
+        </div>
+
+        {/* No Follow Up */}
+        <div className="friends-list-section no-follow">
+          <div className="friends-list-header">
+            <h2>{getSectionTitle('nofollow')}</h2>
+            <button className="add-pill-btn" onClick={() => openAddModal('nofollow')}>+</button>
+          </div>
+          <div className="friends-pills">
+            {noFollowFriends.length === 0 ? (
+              <span className="empty-pill">No one here yet</span>
+            ) : (
+              noFollowFriends.map(friend => renderFriendPill(friend, 'nofollow'))
             )}
           </div>
         </div>
@@ -119,7 +204,7 @@ export function FriendsPage({
       {showAddModal && (
         <div className="add-friend-modal-overlay" onClick={() => setShowAddModal(false)}>
           <div className="add-friend-modal" onClick={e => e.stopPropagation()}>
-            <h3>Add {addingTo === 'close' ? 'Close Friend' : 'Friend'}</h3>
+            <h3>Add to {getSectionTitle(addingTo)}</h3>
             <form onSubmit={handleAdd}>
               <input
                 type="text"

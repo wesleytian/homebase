@@ -2048,6 +2048,27 @@ main {
 
 .friend-pill-name {
   color: #2d2a26;
+  cursor: pointer;
+}
+
+.friend-pill-name:hover {
+  text-decoration: underline;
+}
+
+.friend-pill-edit {
+  border: none;
+  background: transparent;
+  font-size: inherit;
+  font-family: inherit;
+  padding: 0;
+  width: 80px;
+  outline: none;
+  border-bottom: 1px solid #e8a87c;
+}
+
+.friend-pill-actions {
+  display: flex;
+  gap: 2px;
 }
 
 .friend-pill-move,
@@ -2899,8 +2920,8 @@ main {
   background: #fff;
   border-radius: 12px;
   width: 100%;
-  max-width: 500px;
-  max-height: 80vh;
+  max-width: 700px;
+  height: 90vh;
   overflow: hidden;
   display: flex;
   flex-direction: column;
