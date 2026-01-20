@@ -1936,7 +1936,200 @@ main {
   color: #a39b91;
 }
 
-/* Friends Page */
+/* Friends Page - Simplified */
+.friends-page-simple {
+  padding: 0;
+}
+
+.friends-page-simple .friends-page-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.friends-page-simple .friends-page-header h1 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #2d2a26;
+  margin: 0;
+}
+
+.friends-lists {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.friends-list-section {
+  background: #fff;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 10px rgba(45, 42, 38, 0.06);
+}
+
+.friends-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.friends-list-header h2 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #2d2a26;
+  margin: 0;
+}
+
+.add-pill-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: #e8a87c;
+  color: #fff;
+  font-size: 1.1rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.add-pill-btn:hover {
+  background: #d4956a;
+}
+
+.friends-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.empty-pill {
+  color: #a39b91;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.friend-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: #f5f0eb;
+  padding: 6px 10px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+}
+
+.friend-pill.close {
+  background: #fdf2e9;
+  border: 1px solid #e8a87c;
+}
+
+.friend-pill-name {
+  color: #2d2a26;
+}
+
+.friend-pill-move,
+.friend-pill-delete {
+  background: none;
+  border: none;
+  color: #a39b91;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0 2px;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.friend-pill-move:hover {
+  color: #4ecdc4;
+}
+
+.friend-pill-delete:hover {
+  color: #e74c3c;
+}
+
+/* Add Friend Modal */
+.add-friend-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.add-friend-modal {
+  background: #fff;
+  padding: 24px;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 300px;
+}
+
+.add-friend-modal h3 {
+  margin: 0 0 16px;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.add-friend-modal input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1.5px solid #ebe7e2;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-family: inherit;
+  margin-bottom: 16px;
+}
+
+.add-friend-modal input:focus {
+  outline: none;
+  border-color: #e8a87c;
+}
+
+.add-friend-modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.add-friend-modal-actions button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.add-friend-modal-actions button:first-child {
+  background: #e8e4df;
+  color: #2d2a26;
+}
+
+.add-friend-modal-actions button:last-child {
+  background: #e8a87c;
+  color: #fff;
+}
+
+.add-friend-modal-actions button:last-child:hover {
+  background: #d4956a;
+}
+
+.add-friend-modal-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Friends Page - Original (keeping for reference) */
 .friends-page {
   padding: 0;
 }

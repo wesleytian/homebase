@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RoutineWithProgress, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendConnection, FriendTier } from './types';
+import { RoutineWithProgress, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendTier } from './types';
 import {
   getAllRoutines,
   addRoutine,
@@ -47,10 +47,7 @@ import {
   addFriend,
   updateFriend,
   deleteFriend,
-  getAllFriendConnections,
-  addFriendConnection,
-  deleteFriendConnection,
-  getCookieJarContent,
+    getCookieJarContent,
   saveCookieJarContent,
 } from './db';
 import { RoutineList } from './RoutineList';
@@ -94,7 +91,6 @@ export default function App() {
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [showViewNotesModal, setShowViewNotesModal] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [friendConnections, setFriendConnections] = useState<FriendConnection[]>([]);
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const weekStart = getWeekStart();
@@ -128,7 +124,7 @@ export default function App() {
   }, [getPageFromHash]);
 
   const loadData = useCallback(async () => {
-    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, allConnections, cookieJar] = await Promise.all([
+    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar] = await Promise.all([
       getAllRoutines(),
       getCompletionsForWeek(weekStart),
       getAllTodos(),
@@ -141,7 +137,6 @@ export default function App() {
       getAllReadingNotes(),
       getRandomReadingNote(),
       getAllFriends(),
-      getAllFriendConnections(),
       getCookieJarContent(),
     ]);
 
@@ -166,7 +161,6 @@ export default function App() {
     setAllNotes(readingNotes);
     setRandomNote(randomReadingNote);
     setFriends(allFriends);
-    setFriendConnections(allConnections);
     setCookieJarContent(cookieJar);
     setLoading(false);
   }, [weekStart]);
@@ -460,20 +454,6 @@ export default function App() {
     }
   };
 
-  const handleAddConnection = async (friendId1: string, friendId2: string) => {
-    try {
-      await addFriendConnection(friendId1, friendId2);
-      loadData();
-    } catch {
-      // Connection already exists
-    }
-  };
-
-  const handleDeleteConnection = async (id: string) => {
-    await deleteFriendConnection(id);
-    loadData();
-  };
-
   // Cookie Jar handler
   const handleSaveCookieJar = async (content: string) => {
     await saveCookieJarContent(content);
@@ -501,13 +481,10 @@ export default function App() {
       <div className="app">
         <FriendsPage
           friends={friends}
-          connections={friendConnections}
           onBack={() => setCurrentPage('dashboard')}
           onAddFriend={handleAddFriend}
           onEditFriend={handleEditFriend}
           onDeleteFriend={handleDeleteFriend}
-          onAddConnection={handleAddConnection}
-          onDeleteConnection={handleDeleteConnection}
         />
       </div>
     );
