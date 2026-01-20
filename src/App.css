@@ -284,20 +284,22 @@ main {
 
 .todo-text {
   flex: 1;
-  font-size: 0.8rem;
+  font-size: 0.9rem;
   cursor: text;
   color: #2d2a26;
+  padding: 2px 0;
 }
 
 .todo-edit-input {
   flex: 1;
-  font-size: 0.8rem;
-  padding: 2px 6px;
-  border: 1.5px solid #f5a623;
-  border-radius: 6px;
+  font-size: 0.9rem;
+  padding: 2px 0;
+  border: none;
+  border-bottom: 1.5px solid #f5a623;
+  border-radius: 0;
   outline: none;
   font-family: inherit;
-  background: #fff;
+  background: transparent;
 }
 
 .todo-item.editing {
