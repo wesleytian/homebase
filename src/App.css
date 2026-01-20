@@ -2090,13 +2090,39 @@ main {
   border-radius: 8px;
   padding: 16px;
   box-shadow: 0 2px 10px rgba(45, 42, 38, 0.06);
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.friends-list-section.drop-target {
+  background: #fffdf8;
+  border: 2px dashed #f5a623;
+}
+
+.friends-list-section.dragging {
+  opacity: 0.5;
+}
+
+.friends-list-section.section-drop-target {
+  border: 2px solid #f5a623;
 }
 
 .friends-list-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 12px;
+  cursor: grab;
+}
+
+.friends-list-header .section-drag-handle {
+  color: #ccc;
+  font-size: 0.75rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.friends-list-header:hover .section-drag-handle {
+  color: #999;
 }
 
 .friends-list-header h2 {
@@ -2104,6 +2130,7 @@ main {
   font-weight: 600;
   color: #2d2a26;
   margin: 0;
+  flex: 1;
 }
 
 .section-title-edit {
@@ -2162,11 +2189,27 @@ main {
   padding: 6px 10px;
   border-radius: 20px;
   font-size: 0.85rem;
+  cursor: grab;
+}
+
+.friend-pill.dragging {
+  opacity: 0.5;
 }
 
 .friend-pill.close {
   background: #fdf2e9;
   border: 1px solid #e8a87c;
+}
+
+.friend-drag-handle {
+  color: #ccc;
+  font-size: 0.7rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.friend-pill:hover .friend-drag-handle {
+  color: #999;
 }
 
 .friend-pill-name {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Friend, FriendTier } from './types';
 
 export interface FriendSection {
@@ -23,6 +23,14 @@ interface Props {
   onSectionsChange: (sections: FriendSection[]) => void;
 }
 
+type DragType = 'friend' | 'section' | null;
+
+interface DragState {
+  type: DragType;
+  draggedId: string | null;
+  targetSectionId: string | null;
+}
+
 export function FriendsPage({
   friends,
   sections,
@@ -41,6 +49,12 @@ export function FriendsPage({
   const [editSectionName, setEditSectionName] = useState('');
   const [showAddSectionModal, setShowAddSectionModal] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
+  const [dragState, setDragState] = useState<DragState>({
+    type: null,
+    draggedId: null,
+    targetSectionId: null,
+  });
+  const dragRef = useRef<{ type: DragType; id: string } | null>(null);
 
   const getFriendsInSection = (section: FriendSection) => {
     return friends.filter(f => f.tier === section.tier);
@@ -72,6 +86,99 @@ export function FriendsPage({
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
+
+  // Friend drag handlers
+  const handleFriendDragStart = (e: React.DragEvent, friendId: string) => {
+    dragRef.current = { type: 'friend', id: friendId };
+    setDragState({ type: 'friend', draggedId: friendId, targetSectionId: null });
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleSectionDragOver = (e: React.DragEvent, sectionId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (dragRef.current?.type === 'friend') {
+      setDragState(s => ({ ...s, targetSectionId: sectionId }));
+    }
+  };
+
+  const handleSectionDrop = (e: React.DragEvent, sectionId: string) => {
+    e.preventDefault();
+
+    if (dragRef.current?.type === 'friend') {
+      const friend = friends.find(f => f.id === dragRef.current!.id);
+      const targetSection = sections.find(s => s.id === sectionId);
+
+      if (friend && targetSection && friend.tier !== targetSection.tier) {
+        onEditFriend(friend.id, { tier: targetSection.tier as FriendTier });
+      }
+    }
+
+    resetDragState();
+  };
+
+  // Section drag handlers
+  const handleSectionHeaderDragStart = (e: React.DragEvent, sectionId: string) => {
+    dragRef.current = { type: 'section', id: sectionId };
+    setDragState({ type: 'section', draggedId: sectionId, targetSectionId: null });
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleSectionHeaderDragOver = (e: React.DragEvent, sectionId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (dragRef.current?.type === 'section' && dragRef.current.id !== sectionId) {
+      setDragState(s => ({ ...s, targetSectionId: sectionId }));
+    }
+  };
+
+  const handleSectionHeaderDrop = (e: React.DragEvent, targetSectionId: string) => {
+    e.preventDefault();
+
+    if (dragRef.current?.type === 'section' && dragRef.current.id !== targetSectionId) {
+      const draggedIdx = sections.findIndex(s => s.id === dragRef.current!.id);
+      const targetIdx = sections.findIndex(s => s.id === targetSectionId);
+
+      if (draggedIdx !== -1 && targetIdx !== -1) {
+        const newSections = [...sections];
+        const [dragged] = newSections.splice(draggedIdx, 1);
+        newSections.splice(targetIdx, 0, dragged);
+
+        // Reassign tiers based on new order
+        const updatedSections = newSections.map((s, idx) => ({ ...s, tier: idx + 1 }));
+
+        // Update friends with new tiers
+        const tierMapping: Record<number, number> = {};
+        sections.forEach((oldSection) => {
+          const newIdx = updatedSections.findIndex(s => s.id === oldSection.id);
+          tierMapping[oldSection.tier] = updatedSections[newIdx].tier;
+        });
+
+        // Update all friends with new tiers
+        friends.forEach(friend => {
+          const newTier = tierMapping[friend.tier];
+          if (newTier !== friend.tier) {
+            onEditFriend(friend.id, { tier: newTier as FriendTier });
+          }
+        });
+
+        onSectionsChange(updatedSections);
+      }
+    }
+
+    resetDragState();
+  };
+
+  const handleDragEnd = () => {
+    resetDragState();
+  };
+
+  const resetDragState = () => {
+    setDragState({ type: null, draggedId: null, targetSectionId: null });
+    dragRef.current = null;
+  };
 
   const moveFriend = (friend: Friend, direction: 'up' | 'down') => {
     const currentIdx = sections.findIndex(s => s.tier === friend.tier);
@@ -165,9 +272,17 @@ export function FriendsPage({
     const isEditing = editingFriendId === friend.id;
     const isFirstSection = sectionIdx === 0;
     const isLastSection = sectionIdx === sections.length - 1;
+    const isDragging = dragState.draggedId === friend.id && dragState.type === 'friend';
 
     return (
-      <div key={friend.id} className={`friend-pill ${sectionIdx === 0 ? 'close' : ''}`}>
+      <div
+        key={friend.id}
+        className={`friend-pill ${sectionIdx === 0 ? 'close' : ''} ${isDragging ? 'dragging' : ''}`}
+        draggable={!isEditing}
+        onDragStart={(e) => handleFriendDragStart(e, friend.id)}
+        onDragEnd={handleDragEnd}
+      >
+        <span className="friend-drag-handle">⋮⋮</span>
         {isEditing ? (
           <input
             type="text"
@@ -243,9 +358,27 @@ export function FriendsPage({
       <div className="friends-lists">
         {sections.map((section, idx) => {
           const sectionFriends = getFriendsInSection(section);
+          const isDropTarget = dragState.targetSectionId === section.id && dragState.type === 'friend';
+          const isSectionDragging = dragState.draggedId === section.id && dragState.type === 'section';
+          const isSectionDropTarget = dragState.targetSectionId === section.id && dragState.type === 'section';
+
           return (
-            <div key={section.id} className={`friends-list-section ${idx === sections.length - 1 ? 'no-follow' : ''}`}>
-              <div className="friends-list-header">
+            <div
+              key={section.id}
+              className={`friends-list-section ${idx === sections.length - 1 ? 'no-follow' : ''} ${isDropTarget ? 'drop-target' : ''} ${isSectionDragging ? 'dragging' : ''} ${isSectionDropTarget ? 'section-drop-target' : ''}`}
+              onDragOver={(e) => handleSectionDragOver(e, section.id)}
+              onDrop={(e) => handleSectionDrop(e, section.id)}
+              onDragLeave={() => setDragState(s => ({ ...s, targetSectionId: null }))}
+            >
+              <div
+                className="friends-list-header"
+                draggable
+                onDragStart={(e) => handleSectionHeaderDragStart(e, section.id)}
+                onDragOver={(e) => handleSectionHeaderDragOver(e, section.id)}
+                onDrop={(e) => handleSectionHeaderDrop(e, section.id)}
+                onDragEnd={handleDragEnd}
+              >
+                <span className="section-drag-handle">⋮⋮</span>
                 {renderSectionTitle(section)}
                 <div className="section-actions">
                   <button className="add-pill-btn" onClick={() => openAddFriendModal(section.id)}>+</button>
