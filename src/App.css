@@ -39,21 +39,25 @@ header h1 {
 }
 
 .save-status {
-  font-size: 0.7rem;
-  margin-top: 4px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  font-size: 0.75rem;
+  padding: 6px 12px;
+  border-radius: 6px;
   transition: all 0.2s;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
 .save-status.saving {
   color: #8a8279;
-  background: #f5f0eb;
+  background: #fff;
 }
 
 .save-status.saved {
   color: #27ae60;
-  background: #e8f5e9;
+  background: #fff;
 }
 
 .loading {
