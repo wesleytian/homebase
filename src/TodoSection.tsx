@@ -199,16 +199,14 @@ export function TodoSection({
               isDragging={dragState.draggedId === todo.id}
             />
           ))}
-          {!(isDateSection(section.name) && section.name !== getTodayFormatted()) && (
-            <form className="section-add-form" onSubmit={handleAdd}>
+          <form className="section-add-form" onSubmit={handleAdd}>
               <input
                 type="text"
                 placeholder="Add todo..."
                 value={newTodo}
                 onChange={(e) => setNewTodo(e.target.value)}
               />
-            </form>
-          )}
+          </form>
         </div>
       )}
     </div>
