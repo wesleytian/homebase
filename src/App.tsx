@@ -516,7 +516,7 @@ export default function App() {
   return (
     <div className="app">
       <header>
-        <h1>Wesley's Dashboard</h1>
+        <h1>Command Center</h1>
         <p className="week-range">{formatWeekRange(weekStart)}</p>
       </header>
 
