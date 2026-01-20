@@ -141,25 +141,13 @@ main {
 }
 
 .todo-list.collapsed {
-  max-height: 450px;
-  overflow: hidden;
+  max-height: 400px;
+  overflow-y: auto;
   position: relative;
 }
 
-.todo-list.collapsed::after {
-  content: '';
-  position: absolute;
-  bottom: 40px;
-  left: 0;
-  right: 0;
-  height: 60px;
-  background: linear-gradient(to bottom, transparent, #fff);
-  pointer-events: none;
-}
-
 .todo-list.expanded {
-  max-height: 600px;
-  overflow-y: auto;
+  max-height: none;
 }
 
 .todo-expand-btn {
