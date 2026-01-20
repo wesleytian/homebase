@@ -11,15 +11,6 @@ function toCamel<T>(row: Record<string, unknown>): T {
   return result as T;
 }
 
-// Helper to convert camelCase to snake_case
-function toSnake(obj: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
-  for (const key in obj) {
-    const snakeKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
-    result[snakeKey] = obj[key];
-  }
-  return result;
-}
 
 // Week helpers
 export function getWeekStart(date: Date = new Date()): number {

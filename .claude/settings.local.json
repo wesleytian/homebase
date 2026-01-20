@@ -18,7 +18,9 @@
       "Bash(git remote add:*)",
       "Bash(git push:*)",
       "Bash(yarn add:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(yarn dev --port 5175)",
+      "WebFetch(domain:my-command-center-pearl.vercel.app)"
     ]
   }
 }
