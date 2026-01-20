@@ -1243,8 +1243,9 @@ main {
   font-family: inherit;
   resize: vertical;
   background: #fff;
-  transition: all 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   line-height: 1.5;
+  overflow-y: auto;
 }
 
 .journal-question textarea:focus {
