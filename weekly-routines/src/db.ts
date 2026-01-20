@@ -1,114 +1,24 @@
-import { openDB, DBSchema, IDBPDatabase } from 'idb';
-import { Routine, Completion, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendConnection, CookieJarContent } from './types';
+import { supabase } from './supabase';
+import { Routine, Completion, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendConnection } from './types';
 
-interface AppDB extends DBSchema {
-  routines: {
-    key: string;
-    value: Routine;
-  };
-  completions: {
-    key: string;
-    value: Completion;
-    indexes: { 'by-routine': string; 'by-week': number };
-  };
-  todos: {
-    key: string;
-    value: Todo;
-    indexes: { 'by-order': number };
-  };
-  sections: {
-    key: string;
-    value: ToggleSection;
-    indexes: { 'by-order': number };
-  };
-  lifeGoals: {
-    key: string;
-    value: Goal;
-    indexes: { 'by-order': number };
-  };
-  yearlyGoals: {
-    key: string;
-    value: Goal;
-    indexes: { 'by-order': number };
-  };
-  quarterlyGoals: {
-    key: string;
-    value: Goal;
-    indexes: { 'by-order': number };
-  };
-  journal: {
-    key: string;
-    value: JournalEntry;
-    indexes: { 'by-date': string };
-  };
-  readingNotes: {
-    key: string;
-    value: ReadingNote;
-  };
-  friends: {
-    key: string;
-    value: Friend;
-    indexes: { 'by-order': number; 'by-tier': number };
-  };
-  friendConnections: {
-    key: string;
-    value: FriendConnection;
-    indexes: { 'by-friend': string };
-  };
-  cookieJar: {
-    key: string;
-    value: CookieJarContent;
-  };
+// Helper to convert snake_case to camelCase
+function toCamel<T>(row: Record<string, unknown>): T {
+  const result: Record<string, unknown> = {};
+  for (const key in row) {
+    const camelKey = key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+    result[camelKey] = row[key];
+  }
+  return result as T;
 }
 
-let dbPromise: Promise<IDBPDatabase<AppDB>> | null = null;
-
-function getDB() {
-  if (!dbPromise) {
-    dbPromise = openDB<AppDB>('weekly-routines', 9, {
-      upgrade(db, oldVersion) {
-        if (oldVersion < 1) {
-          db.createObjectStore('routines', { keyPath: 'id' });
-          const completionStore = db.createObjectStore('completions', { keyPath: 'id' });
-          completionStore.createIndex('by-routine', 'routineId');
-          completionStore.createIndex('by-week', 'weekStart');
-        }
-        if (oldVersion < 2) {
-          const todoStore = db.createObjectStore('todos', { keyPath: 'id' });
-          todoStore.createIndex('by-order', 'order');
-          const sectionStore = db.createObjectStore('sections', { keyPath: 'id' });
-          sectionStore.createIndex('by-order', 'order');
-        }
-        if (oldVersion < 5) {
-          // Create new goal stores
-          const lifeGoalStore = db.createObjectStore('lifeGoals', { keyPath: 'id' });
-          lifeGoalStore.createIndex('by-order', 'order');
-          const yearlyGoalStore = db.createObjectStore('yearlyGoals', { keyPath: 'id' });
-          yearlyGoalStore.createIndex('by-order', 'order');
-          const quarterlyGoalStore = db.createObjectStore('quarterlyGoals', { keyPath: 'id' });
-          quarterlyGoalStore.createIndex('by-order', 'order');
-        }
-        if (oldVersion < 6) {
-          const journalStore = db.createObjectStore('journal', { keyPath: 'id' });
-          journalStore.createIndex('by-date', 'date');
-        }
-        if (oldVersion < 7) {
-          db.createObjectStore('readingNotes', { keyPath: 'id' });
-        }
-        if (oldVersion < 8) {
-          const friendsStore = db.createObjectStore('friends', { keyPath: 'id' });
-          friendsStore.createIndex('by-order', 'order');
-          db.createObjectStore('cookieJar', { keyPath: 'id' });
-        }
-        if (oldVersion < 9) {
-          // Create connections store (tier index on friends would require accessing transaction)
-          const connectionsStore = db.createObjectStore('friendConnections', { keyPath: 'id' });
-          connectionsStore.createIndex('by-friend', 'friendId1');
-        }
-      },
-    });
+// Helper to convert camelCase to snake_case
+function toSnake(obj: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = {};
+  for (const key in obj) {
+    const snakeKey = key.replace(/[A-Z]/g, (letter) => `_${letter.toLowerCase()}`);
+    result[snakeKey] = obj[key];
   }
-  return dbPromise;
+  return result;
 }
 
 // Week helpers
@@ -123,304 +33,331 @@ export function getWeekStart(date: Date = new Date()): number {
 
 // Routines
 export async function getAllRoutines(): Promise<Routine[]> {
-  const db = await getDB();
-  const routines = await db.getAll('routines');
-  return routines.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+  const { data, error } = await supabase
+    .from('routines')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((r) => toCamel<Routine>(r));
 }
 
 export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'createdAt'>): Promise<Routine> {
-  const db = await getDB();
-  const routines = await db.getAll('routines');
-  const maxOrder = routines.length > 0 ? Math.max(...routines.map((r) => r.order ?? 0)) : -1;
-  const newRoutine: Routine = {
-    ...routine,
-    id: crypto.randomUUID(),
-    order: maxOrder + 1,
-    createdAt: Date.now(),
-  };
-  await db.put('routines', newRoutine);
-  return newRoutine;
+  const { data: existing } = await supabase.from('routines').select('order').order('order', { ascending: false }).limit(1);
+  const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
+
+  const { data, error } = await supabase
+    .from('routines')
+    .insert({
+      name: routine.name,
+      frequency_per_week: routine.frequencyPerWeek,
+      metadata: routine.metadata,
+      order: maxOrder + 1,
+      created_at: Date.now(),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<Routine>(data);
 }
 
 export async function updateRoutine(routine: Routine): Promise<void> {
-  const db = await getDB();
-  await db.put('routines', routine);
+  const { error } = await supabase
+    .from('routines')
+    .update({
+      name: routine.name,
+      frequency_per_week: routine.frequencyPerWeek,
+      metadata: routine.metadata,
+      order: routine.order,
+    })
+    .eq('id', routine.id);
+  if (error) throw error;
 }
 
 export async function deleteRoutine(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('routines', id);
-  const completions = await db.getAllFromIndex('completions', 'by-routine', id);
-  for (const c of completions) {
-    await db.delete('completions', c.id);
-  }
+  const { error } = await supabase.from('routines').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function reorderRoutines(routines: Routine[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('routines', 'readwrite');
   for (let i = 0; i < routines.length; i++) {
-    const routine = { ...routines[i], order: i };
-    tx.store.put(routine);
+    await supabase.from('routines').update({ order: i }).eq('id', routines[i].id);
   }
-  await tx.done;
 }
 
 // Completions
 export async function getCompletionsForWeek(weekStart: number): Promise<Completion[]> {
-  const db = await getDB();
-  return db.getAllFromIndex('completions', 'by-week', weekStart);
+  const { data, error } = await supabase
+    .from('completions')
+    .select('*')
+    .eq('week_start', weekStart);
+  if (error) throw error;
+  return (data || []).map((c) => toCamel<Completion>(c));
 }
 
 export async function addCompletion(routineId: string): Promise<Completion> {
-  const db = await getDB();
   const weekStart = getWeekStart();
-  const completion: Completion = {
-    id: crypto.randomUUID(),
-    routineId,
-    completedAt: Date.now(),
-    weekStart,
-  };
-  await db.put('completions', completion);
-  return completion;
+  const { data, error } = await supabase
+    .from('completions')
+    .insert({
+      routine_id: routineId,
+      completed_at: Date.now(),
+      week_start: weekStart,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<Completion>(data);
 }
 
 export async function removeLastCompletion(routineId: string, weekStart: number): Promise<void> {
-  const db = await getDB();
-  const completions = await db.getAllFromIndex('completions', 'by-week', weekStart);
-  const routineCompletions = completions
-    .filter((c) => c.routineId === routineId)
-    .sort((a, b) => b.completedAt - a.completedAt);
-  if (routineCompletions.length > 0) {
-    await db.delete('completions', routineCompletions[0].id);
+  const { data } = await supabase
+    .from('completions')
+    .select('id')
+    .eq('routine_id', routineId)
+    .eq('week_start', weekStart)
+    .order('completed_at', { ascending: false })
+    .limit(1);
+
+  if (data && data.length > 0) {
+    await supabase.from('completions').delete().eq('id', data[0].id);
   }
 }
 
 // Todos
 export async function getAllTodos(): Promise<Todo[]> {
-  const db = await getDB();
-  const todos = await db.getAll('todos');
-  return todos.sort((a, b) => a.order - b.order);
+  const { data, error } = await supabase
+    .from('todos')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((t) => toCamel<Todo>(t));
 }
 
 export async function addTodo(text: string, sectionId: string | null = null): Promise<Todo> {
-  const db = await getDB();
-  const todos = await db.getAll('todos');
-  const maxOrder = todos.length > 0 ? Math.max(...todos.map((t) => t.order)) : -1;
-  const todo: Todo = {
-    id: crypto.randomUUID(),
-    text,
-    completed: false,
-    sectionId,
-    order: maxOrder + 1,
-    createdAt: Date.now(),
-  };
-  await db.put('todos', todo);
-  return todo;
+  const { data: existing } = await supabase.from('todos').select('order').order('order', { ascending: false }).limit(1);
+  const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
+
+  const { data, error } = await supabase
+    .from('todos')
+    .insert({
+      text,
+      completed: false,
+      section_id: sectionId,
+      order: maxOrder + 1,
+      created_at: Date.now(),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<Todo>(data);
 }
 
 export async function updateTodo(todo: Todo): Promise<void> {
-  const db = await getDB();
-  await db.put('todos', todo);
+  const { error } = await supabase
+    .from('todos')
+    .update({
+      text: todo.text,
+      completed: todo.completed,
+      section_id: todo.sectionId,
+      order: todo.order,
+    })
+    .eq('id', todo.id);
+  if (error) throw error;
 }
 
 export async function deleteTodo(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('todos', id);
+  const { error } = await supabase.from('todos').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function reorderTodos(todos: Todo[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('todos', 'readwrite');
   for (let i = 0; i < todos.length; i++) {
-    const todo = { ...todos[i], order: i };
-    tx.store.put(todo);
+    await supabase.from('todos').update({ order: i, section_id: todos[i].sectionId }).eq('id', todos[i].id);
   }
-  await tx.done;
 }
 
 // Sections
 export async function getAllSections(): Promise<ToggleSection[]> {
-  const db = await getDB();
-  const sections = await db.getAll('sections');
-  return sections.sort((a, b) => a.order - b.order);
+  const { data, error } = await supabase
+    .from('sections')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((s) => toCamel<ToggleSection>(s));
 }
 
 export async function addSection(name: string): Promise<ToggleSection> {
-  const db = await getDB();
-  const sections = await db.getAll('sections');
-
-  // Shift all existing sections down by incrementing their order
-  const tx = db.transaction('sections', 'readwrite');
-  for (const s of sections) {
-    await tx.store.put({ ...s, order: s.order + 1 });
+  // Shift existing sections
+  const { data: existing } = await supabase.from('sections').select('id, order');
+  if (existing) {
+    for (const s of existing) {
+      await supabase.from('sections').update({ order: s.order + 1 }).eq('id', s.id);
+    }
   }
-  await tx.done;
 
-  const section: ToggleSection = {
-    id: crypto.randomUUID(),
-    name,
-    collapsed: false,
-    order: 0,
-    createdAt: Date.now(),
-  };
-  await db.put('sections', section);
-  return section;
+  const { data, error } = await supabase
+    .from('sections')
+    .insert({
+      name,
+      collapsed: false,
+      order: 0,
+      created_at: Date.now(),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<ToggleSection>(data);
 }
 
 export async function updateSection(section: ToggleSection): Promise<void> {
-  const db = await getDB();
-  await db.put('sections', section);
+  const { error } = await supabase
+    .from('sections')
+    .update({
+      name: section.name,
+      collapsed: section.collapsed,
+      order: section.order,
+    })
+    .eq('id', section.id);
+  if (error) throw error;
 }
 
 export async function deleteSection(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('sections', id);
-  // Move todos from this section to unsectioned
-  const todos = await db.getAll('todos');
-  const tx = db.transaction('todos', 'readwrite');
-  for (const todo of todos) {
-    if (todo.sectionId === id) {
-      tx.store.put({ ...todo, sectionId: null });
-    }
-  }
-  await tx.done;
+  // Move todos to unsectioned
+  await supabase.from('todos').update({ section_id: null }).eq('section_id', id);
+  const { error } = await supabase.from('sections').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function reorderSections(sections: ToggleSection[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('sections', 'readwrite');
   for (let i = 0; i < sections.length; i++) {
-    const section = { ...sections[i], order: i };
-    tx.store.put(section);
+    await supabase.from('sections').update({ order: i }).eq('id', sections[i].id);
   }
-  await tx.done;
 }
 
 // Life Goals
 export async function getAllLifeGoals(): Promise<Goal[]> {
-  const db = await getDB();
-  const goals = await db.getAll('lifeGoals');
-  return goals.sort((a, b) => a.order - b.order);
+  const { data, error } = await supabase
+    .from('life_goals')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((g) => toCamel<Goal>(g));
 }
 
 export async function addLifeGoal(title: string, description: string = ''): Promise<Goal> {
-  const db = await getDB();
-  const goals = await db.getAll('lifeGoals');
-  const maxOrder = goals.length > 0 ? Math.max(...goals.map((g) => g.order)) : -1;
-  const goal: Goal = {
-    id: crypto.randomUUID(),
-    title,
-    description,
-    order: maxOrder + 1,
-    createdAt: Date.now(),
-  };
-  await db.put('lifeGoals', goal);
-  return goal;
+  const { data: existing } = await supabase.from('life_goals').select('order').order('order', { ascending: false }).limit(1);
+  const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
+
+  const { data, error } = await supabase
+    .from('life_goals')
+    .insert({ title, description, order: maxOrder + 1, created_at: Date.now() })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<Goal>(data);
 }
 
 export async function updateLifeGoal(goal: Goal): Promise<void> {
-  const db = await getDB();
-  await db.put('lifeGoals', goal);
+  const { error } = await supabase
+    .from('life_goals')
+    .update({ title: goal.title, description: goal.description, order: goal.order })
+    .eq('id', goal.id);
+  if (error) throw error;
 }
 
 export async function deleteLifeGoal(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('lifeGoals', id);
+  const { error } = await supabase.from('life_goals').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function reorderLifeGoals(goals: Goal[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('lifeGoals', 'readwrite');
   for (let i = 0; i < goals.length; i++) {
-    const goal = { ...goals[i], order: i };
-    tx.store.put(goal);
+    await supabase.from('life_goals').update({ order: i }).eq('id', goals[i].id);
   }
-  await tx.done;
 }
 
-// Yearly Goals (2026)
+// Yearly Goals
 export async function getAllYearlyGoals(): Promise<Goal[]> {
-  const db = await getDB();
-  const goals = await db.getAll('yearlyGoals');
-  return goals.sort((a, b) => a.order - b.order);
+  const { data, error } = await supabase
+    .from('yearly_goals')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((g) => toCamel<Goal>(g));
 }
 
 export async function addYearlyGoal(title: string, description: string = ''): Promise<Goal> {
-  const db = await getDB();
-  const goals = await db.getAll('yearlyGoals');
-  const maxOrder = goals.length > 0 ? Math.max(...goals.map((g) => g.order)) : -1;
-  const goal: Goal = {
-    id: crypto.randomUUID(),
-    title,
-    description,
-    order: maxOrder + 1,
-    createdAt: Date.now(),
-  };
-  await db.put('yearlyGoals', goal);
-  return goal;
+  const { data: existing } = await supabase.from('yearly_goals').select('order').order('order', { ascending: false }).limit(1);
+  const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
+
+  const { data, error } = await supabase
+    .from('yearly_goals')
+    .insert({ title, description, order: maxOrder + 1, created_at: Date.now() })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<Goal>(data);
 }
 
 export async function updateYearlyGoal(goal: Goal): Promise<void> {
-  const db = await getDB();
-  await db.put('yearlyGoals', goal);
+  const { error } = await supabase
+    .from('yearly_goals')
+    .update({ title: goal.title, description: goal.description, order: goal.order })
+    .eq('id', goal.id);
+  if (error) throw error;
 }
 
 export async function deleteYearlyGoal(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('yearlyGoals', id);
+  const { error } = await supabase.from('yearly_goals').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function reorderYearlyGoals(goals: Goal[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('yearlyGoals', 'readwrite');
   for (let i = 0; i < goals.length; i++) {
-    const goal = { ...goals[i], order: i };
-    tx.store.put(goal);
+    await supabase.from('yearly_goals').update({ order: i }).eq('id', goals[i].id);
   }
-  await tx.done;
 }
 
 // Quarterly Goals
 export async function getAllQuarterlyGoals(): Promise<Goal[]> {
-  const db = await getDB();
-  const goals = await db.getAll('quarterlyGoals');
-  return goals.sort((a, b) => a.order - b.order);
+  const { data, error } = await supabase
+    .from('quarterly_goals')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((g) => toCamel<Goal>(g));
 }
 
 export async function addQuarterlyGoal(title: string, description: string = ''): Promise<Goal> {
-  const db = await getDB();
-  const goals = await db.getAll('quarterlyGoals');
-  const maxOrder = goals.length > 0 ? Math.max(...goals.map((g) => g.order)) : -1;
-  const goal: Goal = {
-    id: crypto.randomUUID(),
-    title,
-    description,
-    order: maxOrder + 1,
-    createdAt: Date.now(),
-  };
-  await db.put('quarterlyGoals', goal);
-  return goal;
+  const { data: existing } = await supabase.from('quarterly_goals').select('order').order('order', { ascending: false }).limit(1);
+  const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
+
+  const { data, error } = await supabase
+    .from('quarterly_goals')
+    .insert({ title, description, order: maxOrder + 1, created_at: Date.now() })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<Goal>(data);
 }
 
 export async function updateQuarterlyGoal(goal: Goal): Promise<void> {
-  const db = await getDB();
-  await db.put('quarterlyGoals', goal);
+  const { error } = await supabase
+    .from('quarterly_goals')
+    .update({ title: goal.title, description: goal.description, order: goal.order })
+    .eq('id', goal.id);
+  if (error) throw error;
 }
 
 export async function deleteQuarterlyGoal(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('quarterlyGoals', id);
+  const { error } = await supabase.from('quarterly_goals').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function reorderQuarterlyGoals(goals: Goal[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('quarterlyGoals', 'readwrite');
   for (let i = 0; i < goals.length; i++) {
-    const goal = { ...goals[i], order: i };
-    tx.store.put(goal);
+    await supabase.from('quarterly_goals').update({ order: i }).eq('id', goals[i].id);
   }
-  await tx.done;
 }
 
 // Journal
@@ -430,14 +367,22 @@ export function getTodayDate(): string {
 }
 
 export async function getAllJournalEntries(): Promise<JournalEntry[]> {
-  const db = await getDB();
-  const entries = await db.getAll('journal');
-  return entries.sort((a, b) => b.date.localeCompare(a.date)); // newest first
+  const { data, error } = await supabase
+    .from('journal_entries')
+    .select('*')
+    .order('date', { ascending: false });
+  if (error) throw error;
+  return (data || []).map((e) => toCamel<JournalEntry>(e));
 }
 
 export async function getJournalEntryByDate(date: string): Promise<JournalEntry | undefined> {
-  const db = await getDB();
-  return db.getFromIndex('journal', 'by-date', date);
+  const { data, error } = await supabase
+    .from('journal_entries')
+    .select('*')
+    .eq('date', date)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? toCamel<JournalEntry>(data) : undefined;
 }
 
 export async function getTodayJournalEntry(): Promise<JournalEntry | undefined> {
@@ -445,166 +390,198 @@ export async function getTodayJournalEntry(): Promise<JournalEntry | undefined> 
 }
 
 export async function createOrUpdateJournalEntry(entry: Partial<JournalEntry> & { date: string }): Promise<JournalEntry> {
-  const db = await getDB();
   const existing = await getJournalEntryByDate(entry.date);
 
   if (existing) {
-    const updated: JournalEntry = {
-      ...existing,
-      ...entry,
-      updatedAt: Date.now(),
-    };
-    await db.put('journal', updated);
-    return updated;
+    const { data, error } = await supabase
+      .from('journal_entries')
+      .update({
+        grateful_for: entry.gratefulFor ?? existing.gratefulFor,
+        make_it_great: entry.makeItGreat ?? existing.makeItGreat,
+        affirmations: entry.affirmations ?? existing.affirmations,
+        amazing_things: entry.amazingThings ?? existing.amazingThings,
+        learned: entry.learned ?? existing.learned,
+        updated_at: Date.now(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return toCamel<JournalEntry>(data);
   } else {
-    const newEntry: JournalEntry = {
-      id: crypto.randomUUID(),
-      date: entry.date,
-      gratefulFor: entry.gratefulFor || '',
-      makeItGreat: entry.makeItGreat || '',
-      affirmations: entry.affirmations || '',
-      amazingThings: entry.amazingThings || '',
-      learned: entry.learned || '',
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    };
-    await db.put('journal', newEntry);
-    return newEntry;
+    const { data, error } = await supabase
+      .from('journal_entries')
+      .insert({
+        date: entry.date,
+        grateful_for: entry.gratefulFor || '',
+        make_it_great: entry.makeItGreat || '',
+        affirmations: entry.affirmations || '',
+        amazing_things: entry.amazingThings || '',
+        learned: entry.learned || '',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return toCamel<JournalEntry>(data);
   }
 }
 
 export async function deleteJournalEntry(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('journal', id);
+  const { error } = await supabase.from('journal_entries').delete().eq('id', id);
+  if (error) throw error;
 }
 
 // Reading Notes
 export async function getAllReadingNotes(): Promise<ReadingNote[]> {
-  const db = await getDB();
-  const notes = await db.getAll('readingNotes');
-  return notes.sort((a, b) => b.createdAt - a.createdAt);
+  const { data, error } = await supabase
+    .from('reading_notes')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []).map((n) => toCamel<ReadingNote>(n));
 }
 
 export async function addReadingNote(source: string, content: string): Promise<ReadingNote> {
-  const db = await getDB();
-  const newNote: ReadingNote = {
-    id: crypto.randomUUID(),
-    source,
-    content,
-    createdAt: Date.now(),
-  };
-  await db.put('readingNotes', newNote);
-  return newNote;
+  const { data, error } = await supabase
+    .from('reading_notes')
+    .insert({ source, content, created_at: Date.now() })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<ReadingNote>(data);
 }
 
 export async function deleteReadingNote(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('readingNotes', id);
+  const { error } = await supabase.from('reading_notes').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function getRandomReadingNote(): Promise<ReadingNote | null> {
-  const db = await getDB();
-  const notes = await db.getAll('readingNotes');
-  if (notes.length === 0) return null;
-  return notes[Math.floor(Math.random() * notes.length)];
+  const { data, error } = await supabase.from('reading_notes').select('*');
+  if (error) throw error;
+  if (!data || data.length === 0) return null;
+  return toCamel<ReadingNote>(data[Math.floor(Math.random() * data.length)]);
 }
 
 // Friends
 export async function getAllFriends(): Promise<Friend[]> {
-  const db = await getDB();
-  const friends = await db.getAll('friends');
-  return friends.sort((a, b) => a.order - b.order);
+  const { data, error } = await supabase
+    .from('friends')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((f) => toCamel<Friend>(f));
 }
 
 export async function addFriend(name: string, tier: 1 | 2 | 3 | 4 = 3, notes: string = ''): Promise<Friend> {
-  const db = await getDB();
-  const friends = await db.getAll('friends');
-  const maxOrder = friends.length > 0 ? Math.max(...friends.map((f) => f.order)) : -1;
-  const friend: Friend = {
-    id: crypto.randomUUID(),
-    name,
-    notes,
-    tier,
-    lastContact: null,
-    order: maxOrder + 1,
-    createdAt: Date.now(),
-  };
-  await db.put('friends', friend);
-  return friend;
+  const { data: existing } = await supabase.from('friends').select('order').order('order', { ascending: false }).limit(1);
+  const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
+
+  const { data, error } = await supabase
+    .from('friends')
+    .insert({
+      name,
+      notes,
+      tier,
+      last_contact: null,
+      order: maxOrder + 1,
+      created_at: Date.now(),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<Friend>(data);
 }
 
 export async function updateFriend(friend: Friend): Promise<void> {
-  const db = await getDB();
-  await db.put('friends', friend);
+  const { error } = await supabase
+    .from('friends')
+    .update({
+      name: friend.name,
+      notes: friend.notes,
+      tier: friend.tier,
+      last_contact: friend.lastContact,
+      order: friend.order,
+    })
+    .eq('id', friend.id);
+  if (error) throw error;
 }
 
 export async function deleteFriend(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('friends', id);
+  const { error } = await supabase.from('friends').delete().eq('id', id);
+  if (error) throw error;
 }
 
 export async function reorderFriends(friends: Friend[]): Promise<void> {
-  const db = await getDB();
-  const tx = db.transaction('friends', 'readwrite');
   for (let i = 0; i < friends.length; i++) {
-    const friend = { ...friends[i], order: i };
-    tx.store.put(friend);
+    await supabase.from('friends').update({ order: i }).eq('id', friends[i].id);
   }
-  await tx.done;
 }
 
 // Friend Connections
 export async function getAllFriendConnections(): Promise<FriendConnection[]> {
-  const db = await getDB();
-  return db.getAll('friendConnections');
+  const { data, error } = await supabase.from('friend_connections').select('*');
+  if (error) throw error;
+  return (data || []).map((c) => toCamel<FriendConnection>(c));
 }
 
 export async function getConnectionsForFriend(friendId: string): Promise<FriendConnection[]> {
-  const db = await getDB();
-  const allConnections = await db.getAll('friendConnections');
-  return allConnections.filter(c => c.friendId1 === friendId || c.friendId2 === friendId);
+  const { data, error } = await supabase
+    .from('friend_connections')
+    .select('*')
+    .or(`friend_id_1.eq.${friendId},friend_id_2.eq.${friendId}`);
+  if (error) throw error;
+  return (data || []).map((c) => toCamel<FriendConnection>(c));
 }
 
 export async function addFriendConnection(friendId1: string, friendId2: string): Promise<FriendConnection> {
-  const db = await getDB();
-  // Check if connection already exists
-  const existing = await db.getAll('friendConnections');
-  const alreadyExists = existing.some(
-    c => (c.friendId1 === friendId1 && c.friendId2 === friendId2) ||
-         (c.friendId1 === friendId2 && c.friendId2 === friendId1)
-  );
-  if (alreadyExists) {
+  // Check if already exists
+  const { data: existing } = await supabase
+    .from('friend_connections')
+    .select('id')
+    .or(`and(friend_id_1.eq.${friendId1},friend_id_2.eq.${friendId2}),and(friend_id_1.eq.${friendId2},friend_id_2.eq.${friendId1})`);
+
+  if (existing && existing.length > 0) {
     throw new Error('Connection already exists');
   }
-  const connection: FriendConnection = {
-    id: crypto.randomUUID(),
-    friendId1,
-    friendId2,
-    createdAt: Date.now(),
-  };
-  await db.put('friendConnections', connection);
-  return connection;
+
+  const { data, error } = await supabase
+    .from('friend_connections')
+    .insert({
+      friend_id_1: friendId1,
+      friend_id_2: friendId2,
+      created_at: Date.now(),
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<FriendConnection>(data);
 }
 
 export async function deleteFriendConnection(id: string): Promise<void> {
-  const db = await getDB();
-  await db.delete('friendConnections', id);
+  const { error } = await supabase.from('friend_connections').delete().eq('id', id);
+  if (error) throw error;
 }
 
 // Cookie Jar
-const COOKIE_JAR_ID = 'main';
+const COOKIE_JAR_ID = '00000000-0000-0000-0000-000000000001';
 
 export async function getCookieJarContent(): Promise<string> {
-  const db = await getDB();
-  const content = await db.get('cookieJar', COOKIE_JAR_ID);
-  return content?.content || '';
+  const { data, error } = await supabase
+    .from('cookie_jar')
+    .select('content')
+    .eq('id', COOKIE_JAR_ID)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.content || '';
 }
 
 export async function saveCookieJarContent(content: string): Promise<void> {
-  const db = await getDB();
-  await db.put('cookieJar', {
-    id: COOKIE_JAR_ID,
-    content,
-    updatedAt: Date.now(),
-  });
+  const { error } = await supabase
+    .from('cookie_jar')
+    .update({ content, updated_at: Date.now() })
+    .eq('id', COOKIE_JAR_ID);
+  if (error) throw error;
 }

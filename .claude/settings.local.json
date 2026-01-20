@@ -14,7 +14,11 @@
       "Bash(npm run dev:*)",
       "Bash(xargs kill:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(yarn add:*)",
+      "Bash(curl:*)"
     ]
   }
 }
