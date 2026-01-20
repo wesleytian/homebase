@@ -1250,11 +1250,11 @@ main {
   border-radius: 8px;
   font-size: 0.8rem;
   font-family: inherit;
-  resize: vertical;
+  resize: none;
   background: #fff;
   transition: border-color 0.2s, box-shadow 0.2s;
   line-height: 1.5;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .journal-question textarea:focus {
