@@ -17,11 +17,16 @@ export function CookieJar({ content, onSave }: Props) {
     setValue(content);
   }, [content]);
 
-  // Auto-resize textarea in modal
+  // Auto-resize textarea in modal (only grow, don't shrink while typing)
   useEffect(() => {
     if (showModal && textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.max(200, textareaRef.current.scrollHeight) + 'px';
+      const textarea = textareaRef.current;
+      const currentHeight = textarea.offsetHeight;
+      const neededHeight = Math.max(200, textarea.scrollHeight);
+      // Only resize if content needs more space
+      if (neededHeight > currentHeight) {
+        textarea.style.height = neededHeight + 'px';
+      }
     }
   }, [value, showModal]);
 
