@@ -180,6 +180,17 @@ export async function getAllSections(): Promise<ToggleSection[]> {
 }
 
 export async function addSection(name: string): Promise<ToggleSection> {
+  // Check if section with this name already exists
+  const { data: existingSection } = await supabase
+    .from('sections')
+    .select('*')
+    .eq('name', name)
+    .single();
+
+  if (existingSection) {
+    return toCamel<ToggleSection>(existingSection);
+  }
+
   // Shift existing sections
   const { data: existing } = await supabase.from('sections').select('id, order');
   if (existing) {
