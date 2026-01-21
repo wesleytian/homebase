@@ -145,17 +145,28 @@ export async function addTodo(text: string, sectionId: string | null = null, ind
 }
 
 export async function updateTodo(todo: Todo): Promise<void> {
+  const updateData: Record<string, unknown> = {
+    text: todo.text,
+    completed: todo.completed,
+    section_id: todo.sectionId,
+    order: todo.order,
+    indent: todo.indent ?? 0,
+  };
+
+  // Only include completed_at if it's set (column may not exist yet)
+  if (todo.completedAt !== undefined) {
+    updateData.completed_at = todo.completedAt;
+  }
+
   const { error } = await supabase
     .from('todos')
-    .update({
-      text: todo.text,
-      completed: todo.completed,
-      section_id: todo.sectionId,
-      order: todo.order,
-      indent: todo.indent ?? 0,
-    })
+    .update(updateData)
     .eq('id', todo.id);
-  if (error) throw error;
+
+  // Ignore error if it's about the completed_at column not existing
+  if (error && !error.message?.includes('completed_at')) {
+    throw error;
+  }
 }
 
 export async function deleteTodo(id: string): Promise<void> {
@@ -571,6 +582,7 @@ export async function deleteFriendConnection(id: string): Promise<void> {
 
 // Cookie Jar
 const COOKIE_JAR_ID = '00000000-0000-0000-0000-000000000001';
+const FINANCES_ID = '00000000-0000-0000-0000-000000000002';
 
 export async function getCookieJarContent(): Promise<string> {
   const { data, error } = await supabase
@@ -587,5 +599,23 @@ export async function saveCookieJarContent(content: string): Promise<void> {
     .from('cookie_jar')
     .update({ content, updated_at: Date.now() })
     .eq('id', COOKIE_JAR_ID);
+  if (error) throw error;
+}
+
+// Finances
+export async function getFinancesContent(): Promise<string> {
+  const { data, error } = await supabase
+    .from('finances')
+    .select('content')
+    .eq('id', FINANCES_ID)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.content || '';
+}
+
+export async function saveFinancesContent(content: string): Promise<void> {
+  const { error } = await supabase
+    .from('finances')
+    .upsert({ id: FINANCES_ID, content, updated_at: Date.now() });
   if (error) throw error;
 }

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RoutineWithProgress, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendTier } from './types';
+import { RoutineWithProgress, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
 import {
   getAllRoutines,
   addRoutine,
@@ -49,6 +49,8 @@ import {
   deleteFriend,
     getCookieJarContent,
   saveCookieJarContent,
+  getFinancesContent,
+  saveFinancesContent,
 } from './db';
 import { RoutineList } from './RoutineList';
 import { AddRoutineForm } from './AddRoutineForm';
@@ -63,6 +65,10 @@ import { ViewNotesModal } from './ViewNotesModal';
 import { FriendsCard } from './FriendsCard';
 import { FriendsPage, FriendSection, DEFAULT_SECTIONS } from './FriendsPage';
 import { CookieJar } from './CookieJar';
+import { FinancesCard } from './FinancesCard';
+import { DailySummaryCard } from './DailySummaryCard';
+import { SettingsPage } from './SettingsPage';
+import { AIChat } from './AIChat';
 import './App.css';
 
 function formatWeekRange(weekStart: number): string {
@@ -72,6 +78,15 @@ function formatWeekRange(weekStart: number): string {
 
   const options: Intl.DateTimeFormatOptions = { month: 'short', day: 'numeric' };
   return `${start.toLocaleDateString('en-US', options)} - ${end.toLocaleDateString('en-US', options)}`;
+}
+
+function isFirstWeekendOfMonth(): boolean {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
+  const dayOfMonth = now.getDate();
+  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+  const isFirstWeek = dayOfMonth <= 7;
+  return isWeekend && isFirstWeek;
 }
 
 export default function App() {
@@ -99,22 +114,30 @@ export default function App() {
     return DEFAULT_SECTIONS;
   });
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
+  const [financesContent, setFinancesContent] = useState<string>('');
+  const [settings, setSettings] = useState<AppSettings>(() => {
+    const saved = localStorage.getItem('appSettings');
+    if (saved) {
+      return { ...DEFAULT_SETTINGS, ...JSON.parse(saved) };
+    }
+    return DEFAULT_SETTINGS;
+  });
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const weekStart = getWeekStart();
 
   // Hash-based routing for browser back/forward support
-  const getPageFromHash = useCallback((): 'dashboard' | 'journal' | 'friends' => {
+  const getPageFromHash = useCallback((): 'dashboard' | 'journal' | 'friends' | 'settings' => {
     const hash = window.location.hash.slice(1); // Remove the #
-    if (hash === 'journal' || hash === 'friends') {
+    if (hash === 'journal' || hash === 'friends' || hash === 'settings') {
       return hash;
     }
     return 'dashboard';
   }, []);
 
-  const [currentPage, setCurrentPageState] = useState<'dashboard' | 'journal' | 'friends'>(getPageFromHash);
+  const [currentPage, setCurrentPageState] = useState<'dashboard' | 'journal' | 'friends' | 'settings'>(getPageFromHash);
 
-  const setCurrentPage = useCallback((page: 'dashboard' | 'journal' | 'friends') => {
+  const setCurrentPage = useCallback((page: 'dashboard' | 'journal' | 'friends' | 'settings') => {
     const newHash = page === 'dashboard' ? '' : `#${page}`;
     if (window.location.hash !== newHash && !(page === 'dashboard' && window.location.hash === '')) {
       window.history.pushState(null, '', newHash || window.location.pathname);
@@ -132,7 +155,7 @@ export default function App() {
   }, [getPageFromHash]);
 
   const loadData = useCallback(async () => {
-    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar] = await Promise.all([
+    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, finances] = await Promise.all([
       getAllRoutines(),
       getCompletionsForWeek(weekStart),
       getAllTodos(),
@@ -146,6 +169,7 @@ export default function App() {
       getRandomReadingNote(),
       getAllFriends(),
       getCookieJarContent(),
+      getFinancesContent(),
     ]);
 
     const completionCounts = new Map<string, number>();
@@ -170,6 +194,7 @@ export default function App() {
     setRandomNote(randomReadingNote);
     setFriends(allFriends);
     setCookieJarContent(cookieJar);
+    setFinancesContent(finances);
     setLoading(false);
   }, [weekStart]);
 
@@ -267,7 +292,30 @@ export default function App() {
     const todo = todos.find((t) => t.id === id);
     if (todo) {
       await withSaveStatus(async () => {
-        await updateTodo({ ...todo, completed: !todo.completed });
+        const isCompleting = !todo.completed;
+        await updateTodo({
+          ...todo,
+          completed: isCompleting,
+          completedAt: isCompleting ? Date.now() : null,
+        });
+
+        // If completing and auto-sort is enabled, move to bottom of section
+        if (isCompleting && settings.autoSortCompletedTodos) {
+          const sectionTodos = todos.filter((t) => t.sectionId === todo.sectionId);
+          const otherTodos = todos.filter((t) => t.sectionId !== todo.sectionId);
+          const todoIndex = sectionTodos.findIndex((t) => t.id === id);
+
+          if (todoIndex !== -1 && todoIndex < sectionTodos.length - 1) {
+            // Move to end of section
+            const reorderedSection = [
+              ...sectionTodos.slice(0, todoIndex),
+              ...sectionTodos.slice(todoIndex + 1),
+              sectionTodos[todoIndex],
+            ];
+            await reorderTodos([...otherTodos, ...reorderedSection]);
+          }
+        }
+
         await loadData();
       });
     }
@@ -511,9 +559,53 @@ export default function App() {
     setCookieJarContent(content);
   };
 
+  // Finances handler
+  const handleSaveFinances = async (content: string) => {
+    await saveFinancesContent(content);
+    setFinancesContent(content);
+  };
+
+  // Settings handler
+  const handleSettingsChange = (newSettings: AppSettings) => {
+    setSettings(newSettings);
+    localStorage.setItem('appSettings', JSON.stringify(newSettings));
+  };
+
+  // Sort all completed todos to bottom of their sections
+  const handleSortCompletedToBottom = async () => {
+    // Group todos by section
+    const sectionIds = [...new Set(todos.map((t) => t.sectionId))];
+    const sortedTodos: Todo[] = [];
+
+    for (const sectionId of sectionIds) {
+      const sectionTodos = todos.filter((t) => t.sectionId === sectionId);
+      const uncompleted = sectionTodos.filter((t) => !t.completed);
+      const completed = sectionTodos.filter((t) => t.completed);
+      sortedTodos.push(...uncompleted, ...completed);
+    }
+
+    await reorderTodos(sortedTodos);
+    await loadData();
+  };
+
   if (loading) {
     return <div className="loading">Loading...</div>;
   }
+
+  const aiChatComponent = (
+    <AIChat
+      settings={settings}
+      todos={todos}
+      sections={sections}
+      lifeGoals={lifeGoals}
+      yearlyGoals={yearlyGoals}
+      quarterlyGoals={quarterlyGoals}
+      routines={routines}
+      journalEntries={allJournalEntries}
+      friends={friends}
+      onNavigateToSettings={() => setCurrentPage('settings')}
+    />
+  );
 
   if (currentPage === 'journal') {
     return (
@@ -523,6 +615,7 @@ export default function App() {
           onBack={() => setCurrentPage('dashboard')}
           onSave={handleSaveJournalEntry}
         />
+        {aiChatComponent}
       </div>
     );
   }
@@ -539,6 +632,21 @@ export default function App() {
           onDeleteFriend={handleDeleteFriend}
           onSectionsChange={handleFriendsSectionsChange}
         />
+        {aiChatComponent}
+      </div>
+    );
+  }
+
+  if (currentPage === 'settings') {
+    return (
+      <div className="app">
+        <SettingsPage
+          settings={settings}
+          onSettingsChange={handleSettingsChange}
+          onSortCompletedToBottom={handleSortCompletedToBottom}
+          onBack={() => setCurrentPage('dashboard')}
+        />
+        {aiChatComponent}
       </div>
     );
   }
@@ -553,7 +661,18 @@ export default function App() {
             {saveStatus === 'saving' ? 'Saving...' : '✓ Saved'}
           </span>
         )}
+        <button className="settings-btn" onClick={() => setCurrentPage('settings')} title="Settings">
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+          </svg>
+        </button>
       </header>
+
+      <DailySummaryCard
+        todos={todos}
+        sections={sections}
+        routines={routines}
+      />
 
       <main>
         <div className="column">
@@ -680,6 +799,14 @@ export default function App() {
               onSave={handleSaveCookieJar}
             />
           </section>
+
+          <section className="app-section">
+            <FinancesCard
+              content={financesContent}
+              onSave={handleSaveFinances}
+              isReviewTime={isFirstWeekendOfMonth()}
+            />
+          </section>
         </div>
       </main>
 
@@ -710,6 +837,8 @@ export default function App() {
           }}
         />
       )}
+
+      {aiChatComponent}
     </div>
   );
 }

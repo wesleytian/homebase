@@ -24,11 +24,13 @@ interface Props {
 }
 
 type DragType = 'friend' | 'section' | null;
+type DropPosition = 'above' | 'below' | null;
 
 interface DragState {
   type: DragType;
   draggedId: string | null;
   targetSectionId: string | null;
+  position: DropPosition;
 }
 
 export function FriendsPage({
@@ -53,6 +55,7 @@ export function FriendsPage({
     type: null,
     draggedId: null,
     targetSectionId: null,
+    position: null,
   });
   const dragRef = useRef<{ type: DragType; id: string } | null>(null);
 
@@ -90,7 +93,7 @@ export function FriendsPage({
   // Friend drag handlers
   const handleFriendDragStart = (e: React.DragEvent, friendId: string) => {
     dragRef.current = { type: 'friend', id: friendId };
-    setDragState({ type: 'friend', draggedId: friendId, targetSectionId: null });
+    setDragState({ type: 'friend', draggedId: friendId, targetSectionId: null, position: null });
     e.dataTransfer.effectAllowed = 'move';
   };
 
@@ -121,7 +124,7 @@ export function FriendsPage({
   // Section drag handlers
   const handleSectionHeaderDragStart = (e: React.DragEvent, sectionId: string) => {
     dragRef.current = { type: 'section', id: sectionId };
-    setDragState({ type: 'section', draggedId: sectionId, targetSectionId: null });
+    setDragState({ type: 'section', draggedId: sectionId, targetSectionId: null, position: null });
     e.dataTransfer.effectAllowed = 'move';
   };
 
@@ -130,7 +133,11 @@ export function FriendsPage({
     e.dataTransfer.dropEffect = 'move';
 
     if (dragRef.current?.type === 'section' && dragRef.current.id !== sectionId) {
-      setDragState(s => ({ ...s, targetSectionId: sectionId }));
+      // Determine above or below based on mouse position
+      const rect = e.currentTarget.getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const position: DropPosition = e.clientY < midY ? 'above' : 'below';
+      setDragState(s => ({ ...s, targetSectionId: sectionId, position }));
     }
   };
 
@@ -144,7 +151,15 @@ export function FriendsPage({
       if (draggedIdx !== -1 && targetIdx !== -1) {
         const newSections = [...sections];
         const [dragged] = newSections.splice(draggedIdx, 1);
-        newSections.splice(targetIdx, 0, dragged);
+
+        // Insert at correct position based on drop position
+        let insertIdx = targetIdx;
+        if (dragState.position === 'below') {
+          insertIdx = draggedIdx < targetIdx ? targetIdx : targetIdx + 1;
+        } else {
+          insertIdx = draggedIdx < targetIdx ? targetIdx - 1 : targetIdx;
+        }
+        newSections.splice(insertIdx, 0, dragged);
 
         // Reassign tiers based on new order
         const updatedSections = newSections.map((s, idx) => ({ ...s, tier: idx + 1 }));
@@ -176,7 +191,7 @@ export function FriendsPage({
   };
 
   const resetDragState = () => {
-    setDragState({ type: null, draggedId: null, targetSectionId: null });
+    setDragState({ type: null, draggedId: null, targetSectionId: null, position: null });
     dragRef.current = null;
   };
 
@@ -362,13 +377,15 @@ export function FriendsPage({
           const isSectionDragging = dragState.draggedId === section.id && dragState.type === 'section';
           const isSectionDropTarget = dragState.targetSectionId === section.id && dragState.type === 'section';
 
+          const sectionDropClass = isSectionDropTarget && dragState.position ? `section-drop-${dragState.position}` : '';
+
           return (
             <div
               key={section.id}
-              className={`friends-list-section ${idx === sections.length - 1 ? 'no-follow' : ''} ${isDropTarget ? 'drop-target' : ''} ${isSectionDragging ? 'dragging' : ''} ${isSectionDropTarget ? 'section-drop-target' : ''}`}
+              className={`friends-list-section ${idx === sections.length - 1 ? 'no-follow' : ''} ${isDropTarget ? 'drop-target' : ''} ${isSectionDragging ? 'dragging' : ''} ${sectionDropClass}`}
               onDragOver={(e) => handleSectionDragOver(e, section.id)}
               onDrop={(e) => handleSectionDrop(e, section.id)}
-              onDragLeave={() => setDragState(s => ({ ...s, targetSectionId: null }))}
+              onDragLeave={() => setDragState(s => ({ ...s, targetSectionId: null, position: null }))}
             >
               <div
                 className="friends-list-header"

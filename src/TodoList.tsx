@@ -259,7 +259,7 @@ export function TodoList({
         onDragLeave={() => setUnsectionedHover(false)}
         onDrop={handleDropOnUnsectioned}
       >
-        {[...unsectionedTodos].sort((a, b) => Number(a.completed) - Number(b.completed)).map((todo, index) => (
+        {unsectionedTodos.map((todo, index) => (
           <TodoItem
             key={todo.id}
             todo={todo}

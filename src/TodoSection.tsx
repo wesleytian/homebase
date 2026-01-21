@@ -219,7 +219,7 @@ export function TodoSection({
       </div>
       {!section.collapsed && (
         <div className="section-content">
-          {[...todos].sort((a, b) => Number(a.completed) - Number(b.completed)).map((todo, index) => (
+          {todos.map((todo, index) => (
             <TodoItem
               key={todo.id}
               todo={todo}
