@@ -109,6 +109,7 @@ export interface Hobby {
 
 export interface AppSettings {
   autoSortCompletedTodos: boolean;
+  confettiEnabled: boolean;
   anthropicApiKey: string;
   mapboxToken: string;
   // AI context settings
@@ -182,6 +183,7 @@ export const COUNTRIES = [
 
 export const DEFAULT_SETTINGS: AppSettings = {
   autoSortCompletedTodos: true,
+  confettiEnabled: false,
   anthropicApiKey: '',
   mapboxToken: '',
   userRole: '',

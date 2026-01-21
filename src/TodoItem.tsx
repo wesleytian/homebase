@@ -11,6 +11,7 @@ interface Props {
   onEdit: (id: string, text: string) => void;
   onIndent: (id: string, indent: number) => void;
   canIndent: boolean;
+  confettiEnabled?: boolean;
   onDragStart: (e: React.DragEvent, id: string) => void;
   onDragOver: (e: React.DragEvent, id: string) => void;
   onDragLeave: () => void;
@@ -29,6 +30,7 @@ export function TodoItem({
   onEdit,
   onIndent,
   canIndent,
+  confettiEnabled = false,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -87,8 +89,8 @@ export function TodoItem({
   };
 
   const handleToggle = () => {
-    // Only show confetti when completing (not uncompleting)
-    if (!todo.completed && checkboxRef.current) {
+    // Only show confetti when completing (not uncompleting) and if enabled
+    if (confettiEnabled && !todo.completed && checkboxRef.current) {
       const rect = checkboxRef.current.getBoundingClientRect();
       setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });
       setCelebrating(true);

@@ -31,6 +31,7 @@ interface DragState {
 interface Props {
   section: ToggleSection;
   todos: Todo[];
+  confettiEnabled?: boolean;
   onToggleSection: (id: string) => void;
   onDeleteSection: (id: string) => void;
   onEditSection: (id: string, name: string) => void;
@@ -57,6 +58,7 @@ interface Props {
 export function TodoSection({
   section,
   todos,
+  confettiEnabled = false,
   onToggleSection,
   onDeleteSection,
   onEditSection,
@@ -234,6 +236,7 @@ export function TodoSection({
               onEdit={onEditTodo}
               onIndent={onIndentTodo}
               canIndent={index > 0}
+              confettiEnabled={confettiEnabled}
               onDragStart={onTodoDragStart}
               onDragOver={onTodoDragOver}
               onDragLeave={onTodoDragLeave}

@@ -7,6 +7,7 @@ import { useTouchDrag } from './useTouchDrag';
 interface Props {
   todos: Todo[];
   sections: ToggleSection[];
+  confettiEnabled?: boolean;
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
   onEditTodo: (id: string, text: string) => void;
@@ -37,6 +38,7 @@ const TODO_LIMIT = 12;
 export function TodoList({
   todos,
   sections,
+  confettiEnabled = false,
   onToggleTodo,
   onDeleteTodo,
   onEditTodo,
@@ -284,6 +286,7 @@ export function TodoList({
             onEdit={onEditTodo}
             onIndent={onIndentTodo}
             canIndent={index > 0}
+            confettiEnabled={confettiEnabled}
             onDragStart={handleTodoDragStart}
             onDragOver={handleTodoDragOver}
             onDragLeave={handleDragLeave}
@@ -302,6 +305,7 @@ export function TodoList({
           key={section.id}
           section={section}
           todos={todos.filter((t) => t.sectionId === section.id)}
+          confettiEnabled={confettiEnabled}
           onToggleSection={onToggleSection}
           onDeleteSection={onDeleteSection}
           onEditSection={onEditSection}

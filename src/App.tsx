@@ -294,79 +294,89 @@ export default function App() {
     });
   };
 
-  const handleToggleTodo = async (id: string) => {
+  const handleToggleTodo = (id: string) => {
     const todo = todos.find((t) => t.id === id);
-    if (todo) {
-      await withSaveStatus(async () => {
-        const isCompleting = !todo.completed;
-        await updateTodo({
-          ...todo,
-          completed: isCompleting,
-          completedAt: isCompleting ? Date.now() : null,
-        });
+    if (!todo) return;
 
-        // If completing and auto-sort is enabled, move to bottom of section
-        if (isCompleting && settings.autoSortCompletedTodos) {
-          const sectionTodos = todos.filter((t) => t.sectionId === todo.sectionId);
-          const otherTodos = todos.filter((t) => t.sectionId !== todo.sectionId);
-          const todoIndex = sectionTodos.findIndex((t) => t.id === id);
+    const isCompleting = !todo.completed;
+    const updatedTodo = {
+      ...todo,
+      completed: isCompleting,
+      completedAt: isCompleting ? Date.now() : null,
+    };
 
-          if (todoIndex !== -1 && todoIndex < sectionTodos.length - 1) {
-            // Move to end of section
-            const reorderedSection = [
-              ...sectionTodos.slice(0, todoIndex),
-              ...sectionTodos.slice(todoIndex + 1),
-              sectionTodos[todoIndex],
-            ];
-            await reorderTodos([...otherTodos, ...reorderedSection]);
-          }
-        }
+    // Update state immediately (optimistic)
+    let newTodos = todos.map((t) => (t.id === id ? updatedTodo : t));
 
-        await loadData();
-      });
+    // If completing and auto-sort is enabled, move to bottom of section
+    if (isCompleting && settings.autoSortCompletedTodos) {
+      const sectionTodos = newTodos.filter((t) => t.sectionId === todo.sectionId);
+      const otherTodos = newTodos.filter((t) => t.sectionId !== todo.sectionId);
+      const todoIndex = sectionTodos.findIndex((t) => t.id === id);
+
+      if (todoIndex !== -1 && todoIndex < sectionTodos.length - 1) {
+        const reorderedSection = [
+          ...sectionTodos.slice(0, todoIndex),
+          ...sectionTodos.slice(todoIndex + 1),
+          sectionTodos[todoIndex],
+        ];
+        newTodos = [...otherTodos, ...reorderedSection];
+      }
+    }
+
+    setTodos(newTodos);
+
+    // Sync to DB in background
+    updateTodo(updatedTodo).catch(console.error);
+    if (isCompleting && settings.autoSortCompletedTodos) {
+      reorderTodos(newTodos).catch(console.error);
     }
   };
 
-  const handleDeleteTodo = async (id: string) => {
-    await withSaveStatus(async () => {
-      await deleteTodo(id);
-      await loadData();
-    });
+  const handleDeleteTodo = (id: string) => {
+    // Update state immediately (optimistic)
+    setTodos((prev) => prev.filter((t) => t.id !== id));
+    // Sync to DB in background
+    deleteTodo(id).catch(console.error);
   };
 
-  const handleEditTodo = async (id: string, text: string) => {
+  const handleEditTodo = (id: string, text: string) => {
     const todo = todos.find((t) => t.id === id);
-    if (todo) {
-      await withSaveStatus(async () => {
-        await updateTodo({ ...todo, text });
-        await loadData();
-      });
-    }
+    if (!todo) return;
+
+    const updatedTodo = { ...todo, text };
+    // Update state immediately (optimistic)
+    setTodos((prev) => prev.map((t) => (t.id === id ? updatedTodo : t)));
+    // Sync to DB in background
+    updateTodo(updatedTodo).catch(console.error);
   };
 
-  const handleIndentTodo = async (id: string, indent: number) => {
+  const handleIndentTodo = (id: string, indent: number) => {
     const todo = todos.find((t) => t.id === id);
-    if (todo) {
-      await withSaveStatus(async () => {
-        await updateTodo({ ...todo, indent });
-        await loadData();
-      });
-    }
+    if (!todo) return;
+
+    const updatedTodo = { ...todo, indent };
+    // Update state immediately (optimistic)
+    setTodos((prev) => prev.map((t) => (t.id === id ? updatedTodo : t)));
+    // Sync to DB in background
+    updateTodo(updatedTodo).catch(console.error);
   };
 
-  const handleReorderTodos = async (reorderedTodos: Todo[]) => {
+  const handleReorderTodos = (reorderedTodos: Todo[]) => {
     setTodos(reorderedTodos);
-    await withSaveStatus(() => reorderTodos(reorderedTodos));
+    // Sync to DB in background
+    reorderTodos(reorderedTodos).catch(console.error);
   };
 
-  const handleMoveTodo = async (id: string, newSectionId: string | null) => {
+  const handleMoveTodo = (id: string, newSectionId: string | null) => {
     const todo = todos.find((t) => t.id === id);
-    if (todo) {
-      await withSaveStatus(async () => {
-        await updateTodo({ ...todo, sectionId: newSectionId });
-        await loadData();
-      });
-    }
+    if (!todo) return;
+
+    const updatedTodo = { ...todo, sectionId: newSectionId };
+    // Update state immediately (optimistic)
+    setTodos((prev) => prev.map((t) => (t.id === id ? updatedTodo : t)));
+    // Sync to DB in background
+    updateTodo(updatedTodo).catch(console.error);
   };
 
   // Section handlers
@@ -712,6 +722,7 @@ export default function App() {
             <TodoList
               todos={todos}
               sections={sections}
+              confettiEnabled={settings.confettiEnabled}
               onToggleTodo={handleToggleTodo}
               onDeleteTodo={handleDeleteTodo}
               onEditTodo={handleEditTodo}
