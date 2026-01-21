@@ -583,6 +583,7 @@ export async function deleteFriendConnection(id: string): Promise<void> {
 // Cookie Jar
 const COOKIE_JAR_ID = '00000000-0000-0000-0000-000000000001';
 const FINANCES_ID = '00000000-0000-0000-0000-000000000002';
+const QUICK_NOTES_ID = '00000000-0000-0000-0000-000000000003';
 
 export async function getCookieJarContent(): Promise<string> {
   const { data, error } = await supabase
@@ -617,5 +618,23 @@ export async function saveFinancesContent(content: string): Promise<void> {
   const { error } = await supabase
     .from('finances')
     .upsert({ id: FINANCES_ID, content, updated_at: Date.now() });
+  if (error) throw error;
+}
+
+// Quick Notes
+export async function getQuickNotesContent(): Promise<string> {
+  const { data, error } = await supabase
+    .from('quick_notes')
+    .select('content')
+    .eq('id', QUICK_NOTES_ID)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.content || '';
+}
+
+export async function saveQuickNotesContent(content: string): Promise<void> {
+  const { error } = await supabase
+    .from('quick_notes')
+    .upsert({ id: QUICK_NOTES_ID, content, updated_at: Date.now() });
   if (error) throw error;
 }

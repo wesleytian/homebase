@@ -90,23 +90,43 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
     );
   }
 
+  // Split routines into daily (7x/week) and weekly (less than 7x)
+  const dailyRoutines = routines.filter(r => r.frequencyPerWeek === 7);
+  const weeklyRoutines = routines.filter(r => r.frequencyPerWeek < 7);
+
+  const renderRoutineCard = (routine: RoutineWithProgress) => (
+    <RoutineCard
+      key={routine.id}
+      routine={routine}
+      onIncrement={onIncrement}
+      onDecrement={onDecrement}
+      onDelete={onDelete}
+      onEdit={onEdit}
+      onDragStart={handleDragStart}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      dropPosition={dragState.targetId === routine.id ? dragState.position : null}
+    />
+  );
+
   return (
     <div className="routine-list" onDragEnd={handleDragEnd}>
-      {routines.map((routine) => (
-        <RoutineCard
-          key={routine.id}
-          routine={routine}
-          onIncrement={onIncrement}
-          onDecrement={onDecrement}
-          onDelete={onDelete}
-          onEdit={onEdit}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          dropPosition={dragState.targetId === routine.id ? dragState.position : null}
-        />
-      ))}
+      {dailyRoutines.length > 0 && (
+        <>
+          <div className="routine-section-label">Daily</div>
+          {dailyRoutines.map(renderRoutineCard)}
+        </>
+      )}
+      {dailyRoutines.length > 0 && weeklyRoutines.length > 0 && (
+        <div className="routine-section-divider" />
+      )}
+      {weeklyRoutines.length > 0 && (
+        <>
+          <div className="routine-section-label">Weekly</div>
+          {weeklyRoutines.map(renderRoutineCard)}
+        </>
+      )}
     </div>
   );
 }

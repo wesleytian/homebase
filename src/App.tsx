@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { RoutineWithProgress, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
+import { syncManager } from './syncManager';
 import {
   getAllRoutines,
   addRoutine,
@@ -51,6 +52,8 @@ import {
   saveCookieJarContent,
   getFinancesContent,
   saveFinancesContent,
+  getQuickNotesContent,
+  saveQuickNotesContent,
 } from './db';
 import { RoutineList } from './RoutineList';
 import { AddRoutineForm } from './AddRoutineForm';
@@ -69,6 +72,7 @@ import { FinancesCard } from './FinancesCard';
 import { DailySummaryCard } from './DailySummaryCard';
 import { SettingsPage } from './SettingsPage';
 import { AIChat } from './AIChat';
+import { QuickNotes } from './QuickNotes';
 import './App.css';
 
 function formatWeekRange(weekStart: number): string {
@@ -115,6 +119,7 @@ export default function App() {
   });
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
   const [financesContent, setFinancesContent] = useState<string>('');
+  const [quickNotesContent, setQuickNotesContent] = useState<string>('');
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('appSettings');
     if (saved) {
@@ -155,7 +160,7 @@ export default function App() {
   }, [getPageFromHash]);
 
   const loadData = useCallback(async () => {
-    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, finances] = await Promise.all([
+    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, finances, quickNotes] = await Promise.all([
       getAllRoutines(),
       getCompletionsForWeek(weekStart),
       getAllTodos(),
@@ -170,6 +175,7 @@ export default function App() {
       getAllFriends(),
       getCookieJarContent(),
       getFinancesContent(),
+      getQuickNotesContent(),
     ]);
 
     const completionCounts = new Map<string, number>();
@@ -195,6 +201,7 @@ export default function App() {
     setFriends(allFriends);
     setCookieJarContent(cookieJar);
     setFinancesContent(finances);
+    setQuickNotesContent(quickNotes);
     setLoading(false);
   }, [weekStart]);
 
@@ -565,6 +572,12 @@ export default function App() {
     setFinancesContent(content);
   };
 
+  // Quick Notes handler
+  const handleSaveQuickNotes = async (content: string) => {
+    await saveQuickNotesContent(content);
+    setQuickNotesContent(content);
+  };
+
   // Settings handler
   const handleSettingsChange = (newSettings: AppSettings) => {
     setSettings(newSettings);
@@ -674,6 +687,14 @@ export default function App() {
         routines={routines}
       />
 
+      <section className="app-section quick-notes-section">
+        <h2>Quick Thoughts</h2>
+        <QuickNotes
+          content={quickNotesContent}
+          onSave={handleSaveQuickNotes}
+        />
+      </section>
+
       <main>
         <div className="column">
           {journalNeedsAttention && (
@@ -731,7 +752,7 @@ export default function App() {
 
         <div className="column">
           <section className="app-section">
-            <h2>Weekly Routines</h2>
+            <h2>Routines</h2>
             <AddRoutineForm onAdd={handleAddRoutine} />
             <RoutineList
               routines={routines}

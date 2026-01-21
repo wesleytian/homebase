@@ -49,6 +49,9 @@ interface Props {
   onDropOnSection: (e: React.DragEvent, sectionId: string) => void;
   onMoveToToday: (sectionId: string) => void;
   dragState: DragState;
+  onTodoTouchStart?: (e: React.TouchEvent, id: string) => void;
+  onTodoTouchMove?: (e: React.TouchEvent) => void;
+  onTodoTouchEnd?: () => void;
 }
 
 export function TodoSection({
@@ -72,6 +75,9 @@ export function TodoSection({
   onDropOnSection,
   onMoveToToday,
   dragState,
+  onTodoTouchStart,
+  onTodoTouchMove,
+  onTodoTouchEnd,
 }: Props) {
   const [newTodo, setNewTodo] = useState('');
   const [todoHovering, setTodoHovering] = useState(false);
@@ -234,6 +240,9 @@ export function TodoSection({
               onDrop={onTodoDrop}
               dropPosition={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.position : null}
               isDragging={dragState.draggedId === todo.id}
+              onTouchStart={onTodoTouchStart}
+              onTouchMove={onTodoTouchMove}
+              onTouchEnd={onTodoTouchEnd}
             />
           ))}
           <form className="section-add-form" onSubmit={handleAdd}>

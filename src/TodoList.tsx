@@ -2,6 +2,7 @@ import { useState, useRef } from 'react';
 import { Todo, ToggleSection } from './types';
 import { TodoItem, DropPosition } from './TodoItem';
 import { TodoSection } from './TodoSection';
+import { useTouchDrag } from './useTouchDrag';
 
 interface Props {
   todos: Todo[];
@@ -62,6 +63,21 @@ export function TodoList({
     position: null,
   });
   const dragRef = useRef<{ type: DragType; id: string } | null>(null);
+
+  // Touch drag for todos
+  const touchDrag = useTouchDrag({
+    items: todos,
+    getItemId: (t) => t.id,
+    targetSelector: '.todo-item',
+    onReorder: onReorderTodos,
+    onDragStateChange: (draggedId, targetId, position) => {
+      if (draggedId) {
+        setDragState((s) => ({ ...s, type: 'todo', draggedId, targetId, targetType: 'todo', position }));
+      } else {
+        resetDragState();
+      }
+    },
+  });
 
   const handleAddSection = (e: React.FormEvent) => {
     e.preventDefault();
@@ -274,6 +290,9 @@ export function TodoList({
             onDrop={handleTodoDrop}
             dropPosition={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.position : null}
             isDragging={dragState.draggedId === todo.id}
+            onTouchStart={touchDrag.handleTouchStart}
+            onTouchMove={touchDrag.handleTouchMove}
+            onTouchEnd={touchDrag.handleTouchEnd}
           />
         ))}
       </div>
@@ -301,6 +320,9 @@ export function TodoList({
           onDropOnSection={handleDropOnSection}
           onMoveToToday={onMoveToToday}
           dragState={dragState}
+          onTodoTouchStart={touchDrag.handleTouchStart}
+          onTodoTouchMove={touchDrag.handleTouchMove}
+          onTodoTouchEnd={touchDrag.handleTouchEnd}
         />
       ))}
 

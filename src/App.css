@@ -359,14 +359,43 @@ main {
   pointer-events: none;
 }
 
-.todo-item.drop-above::before {
+.todo-item.drop-above::before,
+.todo-item.touch-drop-above::before {
   top: -2px;
   opacity: 1;
 }
 
-.todo-item.drop-below::before {
+.todo-item.drop-below::before,
+.todo-item.touch-drop-below::before {
   bottom: -2px;
   opacity: 1;
+}
+
+/* Confetti animation */
+@keyframes confetti-burst {
+  0% {
+    opacity: 1;
+    transform: translateY(0) rotate(0deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-60px) rotate(360deg) scale(0);
+  }
+}
+
+.confetti-piece {
+  animation: confetti-burst 0.7s ease-out forwards;
+}
+
+/* Checkbox pop animation */
+@keyframes checkbox-pop {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.3); }
+  100% { transform: scale(1); }
+}
+
+.todo-checkbox.celebrating .checkmark {
+  animation: checkbox-pop 0.3s ease-out;
 }
 
 .drag-handle {
@@ -480,20 +509,24 @@ main {
   box-shadow: 0 0 8px rgba(245, 166, 35, 0.5);
 }
 
-.todo-section.drop-above {
+.todo-section.drop-above,
+.todo-section.touch-drop-above {
   margin-top: 12px;
 }
 
-.todo-section.drop-above::before {
+.todo-section.drop-above::before,
+.todo-section.touch-drop-above::before {
   top: -8px;
   opacity: 1;
 }
 
-.todo-section.drop-below {
+.todo-section.drop-below,
+.todo-section.touch-drop-below {
   margin-bottom: 12px;
 }
 
-.todo-section.drop-below::before {
+.todo-section.drop-below::before,
+.todo-section.touch-drop-below::before {
   bottom: -8px;
   opacity: 1;
 }
@@ -698,12 +731,14 @@ main {
   pointer-events: none;
 }
 
-.goal-card.drop-above::before {
+.goal-card.drop-above::before,
+.goal-card.touch-drop-above::before {
   top: -6px;
   opacity: 1;
 }
 
-.goal-card.drop-below::before {
+.goal-card.drop-below::before,
+.goal-card.touch-drop-below::before {
   bottom: -6px;
   opacity: 1;
 }
@@ -798,6 +833,21 @@ main {
   gap: 3px;
 }
 
+.routine-section-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #a39b91;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 4px 0 2px 4px;
+}
+
+.routine-section-divider {
+  height: 1px;
+  background: #e8e4df;
+  margin: 6px 0;
+}
+
 .empty-state {
   text-align: center;
   padding: 20px;
@@ -837,12 +887,14 @@ main {
   pointer-events: none;
 }
 
-.routine-card-compact.drop-above::before {
+.routine-card-compact.drop-above::before,
+.routine-card-compact.touch-drop-above::before {
   top: -5px;
   opacity: 1;
 }
 
-.routine-card-compact.drop-below::before {
+.routine-card-compact.drop-below::before,
+.routine-card-compact.touch-drop-below::before {
   bottom: -5px;
   opacity: 1;
 }
@@ -2242,20 +2294,24 @@ main {
   box-shadow: 0 0 8px rgba(245, 166, 35, 0.5);
 }
 
-.friends-list-section.section-drop-above {
+.friends-list-section.section-drop-above,
+.friends-list-section.touch-drop-above {
   margin-top: 16px;
 }
 
-.friends-list-section.section-drop-above::before {
+.friends-list-section.section-drop-above::before,
+.friends-list-section.touch-drop-above::before {
   top: -10px;
   opacity: 1;
 }
 
-.friends-list-section.section-drop-below {
+.friends-list-section.section-drop-below,
+.friends-list-section.touch-drop-below {
   margin-bottom: 16px;
 }
 
-.friends-list-section.section-drop-below::before {
+.friends-list-section.section-drop-below::before,
+.friends-list-section.touch-drop-below::before {
   bottom: -10px;
   opacity: 1;
 }
@@ -4533,4 +4589,53 @@ main {
   border-radius: 6px;
   font-size: 0.8rem;
   color: #b8860b;
+}
+
+/* =========================
+   QUICK NOTES
+   ========================= */
+.quick-notes-section {
+  margin-bottom: 16px;
+}
+
+.quick-notes-section h2 {
+  font-size: 0.9rem;
+  margin-bottom: 8px;
+}
+
+.quick-notes {
+  position: relative;
+}
+
+.quick-notes-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 12px 14px;
+  border: 1px solid #e8e4df;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: inherit;
+  line-height: 1.5;
+  resize: none;
+  overflow: hidden;
+  background: #fff;
+  color: #2d2a26;
+  transition: border-color 0.15s;
+}
+
+.quick-notes-textarea:focus {
+  outline: none;
+  border-color: #f5a623;
+}
+
+.quick-notes-textarea::placeholder {
+  color: #a39b91;
+}
+
+.quick-notes-saving {
+  position: absolute;
+  bottom: 8px;
+  right: 12px;
+  font-size: 0.7rem;
+  color: #8a8279;
 }
