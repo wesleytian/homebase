@@ -340,7 +340,10 @@ export async function getAllQuarterlyGoals(): Promise<Goal[]> {
     .select('*')
     .order('order', { ascending: true });
   if (error) throw error;
-  return (data || []).map((g) => toCamel<Goal>(g));
+  return (data || []).map((g) => ({
+    ...toCamel<Goal>(g),
+    subtasks: g.subtasks || [],
+  }));
 }
 
 export async function addQuarterlyGoal(title: string, description: string = ''): Promise<Goal> {
@@ -349,17 +352,17 @@ export async function addQuarterlyGoal(title: string, description: string = ''):
 
   const { data, error } = await supabase
     .from('quarterly_goals')
-    .insert({ title, description, order: maxOrder + 1, created_at: Date.now() })
+    .insert({ title, description, subtasks: [], order: maxOrder + 1, created_at: Date.now() })
     .select()
     .single();
   if (error) throw error;
-  return toCamel<Goal>(data);
+  return { ...toCamel<Goal>(data), subtasks: data.subtasks || [] };
 }
 
 export async function updateQuarterlyGoal(goal: Goal): Promise<void> {
   const { error } = await supabase
     .from('quarterly_goals')
-    .update({ title: goal.title, description: goal.description, order: goal.order })
+    .update({ title: goal.title, description: goal.description, subtasks: goal.subtasks, order: goal.order })
     .eq('id', goal.id);
   if (error) throw error;
 }
@@ -584,6 +587,7 @@ export async function deleteFriendConnection(id: string): Promise<void> {
 const COOKIE_JAR_ID = '00000000-0000-0000-0000-000000000001';
 const FINANCES_ID = '00000000-0000-0000-0000-000000000002';
 const QUICK_NOTES_ID = '00000000-0000-0000-0000-000000000003';
+const USER_SETTINGS_ID = '00000000-0000-0000-0000-000000000004';
 
 export async function getCookieJarContent(): Promise<string> {
   const { data, error } = await supabase
@@ -636,5 +640,32 @@ export async function saveQuickNotesContent(content: string): Promise<void> {
   const { error } = await supabase
     .from('quick_notes')
     .upsert({ id: QUICK_NOTES_ID, content, updated_at: Date.now() });
+  if (error) throw error;
+}
+
+// User Settings (goal section titles, friend sections, app settings)
+export interface UserSettings {
+  goalSectionTitles?: Record<string, string>;
+  friendsSections?: { id: string; name: string; tier: number }[];
+  appSettings?: {
+    confettiEnabled?: boolean;
+    autoSortCompletedTodos?: boolean;
+  };
+}
+
+export async function getUserSettings(): Promise<UserSettings> {
+  const { data, error } = await supabase
+    .from('user_settings')
+    .select('settings')
+    .eq('id', USER_SETTINGS_ID)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.settings || {};
+}
+
+export async function saveUserSettings(settings: UserSettings): Promise<void> {
+  const { error } = await supabase
+    .from('user_settings')
+    .upsert({ id: USER_SETTINGS_ID, settings, updated_at: Date.now() });
   if (error) throw error;
 }

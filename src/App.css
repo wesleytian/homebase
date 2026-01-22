@@ -243,6 +243,24 @@ main {
   transform: rotate(90deg);
 }
 
+.goal-section-title {
+  cursor: text;
+}
+
+.goal-section-title-input {
+  font-size: inherit;
+  font-weight: inherit;
+  font-family: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #8a8279;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  min-width: 150px;
+}
+
 /* =========================
    TODO STYLES
    ========================= */
@@ -254,7 +272,7 @@ main {
 }
 
 .todo-list.collapsed {
-  max-height: 500px;
+  max-height: 700px;
   overflow-y: auto;
   position: relative;
 }
@@ -265,14 +283,15 @@ main {
 
 .todo-expand-btn {
   width: 100%;
-  padding: 8px;
-  margin-top: 8px;
+  padding: 12px 16px;
+  margin-top: 16px;
+  margin-bottom: 8px;
   background: #f8f6f3;
   border: 1px dashed #e0dcd6;
-  border-radius: 6px;
-  color: #a39b91;
+  border-radius: 8px;
+  color: #8a8279;
   font-family: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8rem;
   font-weight: 500;
   cursor: pointer;
   position: relative;
@@ -282,6 +301,7 @@ main {
 .todo-expand-btn:hover {
   background: #f0ebe4;
   border-color: #d0cbc4;
+  color: #5a5651;
 }
 
 .todo-add-form {
@@ -329,7 +349,7 @@ main {
 
 .todo-item {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 6px;
   padding: 4px 4px;
   border-radius: 3px;
@@ -338,25 +358,28 @@ main {
   position: relative;
 }
 
+.todo-item .drag-handle,
+.todo-item .todo-checkbox,
+.todo-item .todo-delete {
+  margin-top: 2px;
+}
+
 .todo-item:hover {
   background: #faf8f5;
 }
 
-.todo-item.completed .todo-text {
-  text-decoration: line-through;
-  color: #b8b0a6;
-}
 
 .todo-item::before {
   content: '';
   position: absolute;
-  left: 0;
+  left: var(--drop-indent-offset, 0);
   right: 0;
   height: 3px;
   background: linear-gradient(90deg, #f5a623, #ff8a50);
   border-radius: 2px;
   opacity: 0;
   pointer-events: none;
+  transition: left 0.1s ease;
 }
 
 .todo-item.drop-above::before,
@@ -424,28 +447,31 @@ main {
   border-radius: 4px;
 }
 
-.todo-text {
-  flex: 1;
-  font-size: 0.9rem;
-  cursor: text;
-  color: #2d2a26;
-  padding: 2px 0;
-}
-
-.todo-edit-input {
+.todo-text-input {
   flex: 1;
   font-size: 0.9rem;
   padding: 2px 0;
   border: none;
-  border-bottom: 1.5px solid #f5a623;
-  border-radius: 0;
   outline: none;
   font-family: inherit;
   background: transparent;
+  color: #2d2a26;
+  cursor: text;
+  resize: none;
+  overflow: hidden;
+  line-height: 1.4;
+  word-wrap: break-word;
+  white-space: pre-wrap;
 }
 
-.todo-item.editing {
-  background: #fffbf5;
+.todo-text-input.completed {
+  text-decoration: line-through;
+  color: #b8b0a6;
+}
+
+.todo-text-input::selection {
+  background: #f5a623;
+  color: white;
 }
 
 .todo-delete {
@@ -824,6 +850,148 @@ main {
   background: #fef0ed;
 }
 
+.goal-card {
+  flex-direction: column;
+}
+
+.goal-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+
+.goal-expand-toggle {
+  background: none;
+  border: none;
+  font-size: 0.6rem;
+  color: #a39b91;
+  cursor: pointer;
+  padding: 2px;
+  transition: transform 0.2s;
+}
+
+.goal-expand-toggle.expanded {
+  transform: rotate(90deg);
+}
+
+.goal-subtask-count {
+  font-size: 0.7rem;
+  color: #a39b91;
+  background: #f5f0eb;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 6px;
+}
+
+.goal-details {
+  padding: 8px 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.goal-subtasks {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.goal-subtask {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+}
+
+.goal-subtask.completed .subtask-text {
+  text-decoration: line-through;
+  color: #a39b91;
+}
+
+.subtask-checkbox {
+  position: relative;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+}
+
+.subtask-checkbox input {
+  position: absolute;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.subtask-checkbox .checkmark {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #d4cec6;
+  border-radius: 4px;
+  background: #fff;
+  transition: all 0.2s;
+}
+
+.subtask-checkbox input:checked ~ .checkmark {
+  background: linear-gradient(135deg, #9b8cff, #c4b8ff);
+  border-color: #9b8cff;
+}
+
+.subtask-checkbox input:checked ~ .checkmark::after {
+  content: '✓';
+  position: absolute;
+  color: white;
+  font-size: 10px;
+  top: 1px;
+  left: 3px;
+}
+
+.subtask-text {
+  flex: 1;
+  font-size: 0.8rem;
+  color: #4a4540;
+}
+
+.subtask-delete {
+  background: none;
+  border: none;
+  color: #d4cec6;
+  font-size: 0.8rem;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.2s;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.goal-subtask:hover .subtask-delete {
+  opacity: 1;
+}
+
+.subtask-delete:hover {
+  color: #e85d4c;
+  background: #fef0ed;
+}
+
+.subtask-add-form input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px dashed #e2ddd6;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  background: transparent;
+  color: #4a4540;
+}
+
+.subtask-add-form input:focus {
+  outline: none;
+  border-color: #9b8cff;
+  border-style: solid;
+}
+
+.subtask-add-form input::placeholder {
+  color: #c4beb6;
+}
+
 /* =========================
    ROUTINE STYLES
    ========================= */
@@ -902,6 +1070,15 @@ main {
 .routine-card-compact.complete {
   background: linear-gradient(135deg, #e8fff7 0%, #dffff4 100%);
   border-left: 3px solid #4ecdc4;
+}
+
+.routine-card-compact.completed-today {
+  background: linear-gradient(135deg, #e8fff7 0%, #dffff4 100%);
+  border-left: 3px solid #4ecdc4;
+}
+
+.routine-card-compact.completed-today .routine-name {
+  color: #2a9d8f;
 }
 
 .routine-drag-handle {
@@ -1058,6 +1235,35 @@ main {
 .compact-btn.delete:hover {
   color: #e85d4c;
   background: #fef0ed;
+}
+
+.routine-check-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: none;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #4ecdc4, #45b7aa);
+  color: #fff;
+  transition: all 0.15s;
+}
+
+.routine-check-btn:hover {
+  background: linear-gradient(135deg, #45b7aa, #3da69a);
+}
+
+.routine-check-btn.checked {
+  background: #d4cec6;
+  color: #fff;
+}
+
+.routine-check-btn.checked:hover {
+  background: #c4beb6;
 }
 
 /* Add Routine Button */
@@ -3473,12 +3679,37 @@ main {
 }
 
 /* =========================
-   SETTINGS BUTTON
+   HEADER BUTTONS
    ========================= */
-.settings-btn {
+.header-buttons {
   position: absolute;
   top: 20px;
   right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.focus-btn,
+.expand-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  background: #f5f0eb;
+  color: #5a5651;
+}
+
+.focus-btn:hover,
+.expand-btn:hover {
+  background: #e8e4df;
+  color: #2d2a26;
+}
+
+.settings-btn {
   background: transparent;
   border: none;
   cursor: pointer;

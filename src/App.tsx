@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
-import { RoutineWithProgress, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
+import { useUndo } from './useUndo';
+import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
 import {
   getAllRoutines,
   addRoutine,
@@ -53,6 +54,8 @@ import {
   saveFinancesContent,
   getQuickNotesContent,
   saveQuickNotesContent,
+  getUserSettings,
+  saveUserSettings,
 } from './db';
 import { RoutineList } from './RoutineList';
 import { AddRoutineForm } from './AddRoutineForm';
@@ -93,13 +96,78 @@ function isFirstWeekendOfMonth(): boolean {
 }
 
 export default function App() {
+  const { pushUndo } = useUndo();
   const [routines, setRoutines] = useState<RoutineWithProgress[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [sections, setSections] = useState<ToggleSection[]>([]);
   const [lifeGoals, setLifeGoals] = useState<Goal[]>([]);
   const [yearlyGoals, setYearlyGoals] = useState<Goal[]>([]);
   const [quarterlyGoals, setQuarterlyGoals] = useState<Goal[]>([]);
-  const [lifeGoalsCollapsed, setLifeGoalsCollapsed] = useState(true);
+  // Section collapsed states (persisted to localStorage)
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem('collapsedSections');
+    if (saved) {
+      return JSON.parse(saved);
+    }
+    // Default: Life Goals collapsed, others open
+    return {
+      dailySummary: false,
+      quickThoughts: false,
+      gratitudeJournal: false,
+      todos: false,
+      readingNotes: false,
+      routines: false,
+      q1Goals: false,
+      yearlyGoals: false,
+      lifeGoals: true,
+      closeFriends: false,
+      cookieJar: false,
+    };
+  });
+
+  const toggleSectionCollapsed = (sectionKey: string) => {
+    setCollapsedSections(prev => {
+      const updated = { ...prev, [sectionKey]: !prev[sectionKey] };
+      localStorage.setItem('collapsedSections', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const collapseAllExceptTodos = () => {
+    const updated = {
+      dailySummary: true,
+      quickThoughts: true,
+      gratitudeJournal: true,
+      todos: false,
+      readingNotes: true,
+      routines: true,
+      q1Goals: true,
+      yearlyGoals: true,
+      lifeGoals: true,
+      closeFriends: true,
+      cookieJar: true,
+    };
+    setCollapsedSections(updated);
+    localStorage.setItem('collapsedSections', JSON.stringify(updated));
+  };
+
+  const expandAllSections = () => {
+    const updated = {
+      dailySummary: false,
+      quickThoughts: false,
+      gratitudeJournal: false,
+      todos: false,
+      readingNotes: false,
+      routines: false,
+      q1Goals: false,
+      yearlyGoals: false,
+      lifeGoals: false,
+      closeFriends: false,
+      cookieJar: false,
+    };
+    setCollapsedSections(updated);
+    localStorage.setItem('collapsedSections', JSON.stringify(updated));
+  };
   const [todayJournal, setTodayJournal] = useState<JournalEntry | null>(null);
   const [allJournalEntries, setAllJournalEntries] = useState<JournalEntry[]>([]);
   const [showJournalEditor, setShowJournalEditor] = useState(false);
@@ -109,16 +177,19 @@ export default function App() {
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [showViewNotesModal, setShowViewNotesModal] = useState(false);
   const [friends, setFriends] = useState<Friend[]>([]);
-  const [friendsSections, setFriendsSections] = useState<FriendSection[]>(() => {
-    const saved = localStorage.getItem('friendsSections');
-    if (saved) {
-      return JSON.parse(saved);
-    }
-    return DEFAULT_SECTIONS;
-  });
+  const [friendsSections, setFriendsSections] = useState<FriendSection[]>(DEFAULT_SECTIONS);
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
   const [financesContent, setFinancesContent] = useState<string>('');
   const [quickNotesContent, setQuickNotesContent] = useState<string>('');
+  // Editable goal section titles (loaded from DB)
+  const DEFAULT_GOAL_SECTION_TITLES = {
+    q1Goals: '2026 Q1 Goals',
+    yearlyGoals: '2026 Goals',
+    lifeGoals: 'Life Goals',
+  };
+  const [goalSectionTitles, setGoalSectionTitles] = useState<Record<string, string>>(DEFAULT_GOAL_SECTION_TITLES);
+  const [editingGoalSection, setEditingGoalSection] = useState<string | null>(null);
+  const [editingGoalSectionValue, setEditingGoalSectionValue] = useState('');
   const [settings, setSettings] = useState<AppSettings>(() => {
     const saved = localStorage.getItem('appSettings');
     if (saved) {
@@ -159,7 +230,7 @@ export default function App() {
   }, [getPageFromHash]);
 
   const loadData = useCallback(async () => {
-    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, finances, quickNotes] = await Promise.all([
+    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, finances, quickNotes, userSettings] = await Promise.all([
       getAllRoutines(),
       getCompletionsForWeek(weekStart),
       getAllTodos(),
@@ -175,16 +246,29 @@ export default function App() {
       getCookieJarContent(),
       getFinancesContent(),
       getQuickNotesContent(),
+      getUserSettings(),
     ]);
 
     const completionCounts = new Map<string, number>();
+    const completedTodaySet = new Set<string>();
+
+    // Get start of today (midnight)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStart = today.getTime();
+
     for (const c of completions) {
       completionCounts.set(c.routineId, (completionCounts.get(c.routineId) || 0) + 1);
+      // Check if this completion happened today
+      if (c.completedAt >= todayStart) {
+        completedTodaySet.add(c.routineId);
+      }
     }
 
     const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => ({
       ...r,
       completedThisWeek: completionCounts.get(r.id) || 0,
+      completedToday: completedTodaySet.has(r.id),
     }));
 
     setRoutines(routinesWithProgress);
@@ -201,6 +285,13 @@ export default function App() {
     setCookieJarContent(cookieJar);
     setFinancesContent(finances);
     setQuickNotesContent(quickNotes);
+    // Apply user settings from database
+    if (userSettings.goalSectionTitles) {
+      setGoalSectionTitles({ ...DEFAULT_GOAL_SECTION_TITLES, ...userSettings.goalSectionTitles });
+    }
+    if (userSettings.friendsSections) {
+      setFriendsSections(userSettings.friendsSections);
+    }
     setLoading(false);
   }, [weekStart]);
 
@@ -254,13 +345,39 @@ export default function App() {
   };
 
   const handleIncrement = async (id: string) => {
+    const routine = routines.find((r) => r.id === id);
     await addCompletion(id);
     loadData();
+
+    // Push undo action
+    if (routine) {
+      pushUndo({
+        type: 'increment-routine',
+        description: `Complete "${routine.name}"`,
+        undo: async () => {
+          await removeLastCompletion(id, weekStart);
+          loadData();
+        },
+      });
+    }
   };
 
   const handleDecrement = async (id: string) => {
+    const routine = routines.find((r) => r.id === id);
     await removeLastCompletion(id, weekStart);
     loadData();
+
+    // Push undo action
+    if (routine) {
+      pushUndo({
+        type: 'decrement-routine',
+        description: `Undo "${routine.name}"`,
+        undo: async () => {
+          await addCompletion(id);
+          loadData();
+        },
+      });
+    }
   };
 
   const handleDeleteRoutine = async (id: string) => {
@@ -288,10 +405,109 @@ export default function App() {
 
   // Todo handlers
   const handleAddTodo = async (text: string, sectionId: string | null) => {
-    await withSaveStatus(async () => {
-      await addTodo(text, sectionId);
-      await loadData();
+    // Generate a temporary ID for optimistic update
+    const tempId = crypto.randomUUID();
+    let realId: string = tempId; // Will be updated when DB returns
+
+    // Find the highest order in this section to append at the end
+    const sectionTodos = todos.filter((t) => t.sectionId === sectionId);
+    const maxOrder = sectionTodos.length > 0
+      ? Math.max(...sectionTodos.map((t) => t.order)) + 1
+      : 0;
+
+    // Create the new todo optimistically
+    const newTodo: Todo = {
+      id: tempId,
+      text,
+      completed: false,
+      sectionId,
+      order: maxOrder,
+      indent: 0,
+      createdAt: Date.now(),
+      completedAt: null,
+    };
+
+    // Update state immediately (optimistic)
+    setTodos((prev) => [...prev, newTodo]);
+
+    // Push undo action
+    pushUndo({
+      type: 'add-todo',
+      description: `Add "${text.slice(0, 30)}"`,
+      undo: () => {
+        setTodos((prev) => prev.filter((t) => t.id !== tempId && t.id !== realId));
+        deleteTodo(realId).catch(console.error);
+      },
     });
+
+    // Sync to DB in background
+    addTodo(text, sectionId).then((dbTodo) => {
+      realId = dbTodo.id; // Update for undo
+      // Replace temp todo with real todo from DB
+      setTodos((current) => current.map((t) => (t.id === tempId ? dbTodo : t)));
+    }).catch(console.error);
+  };
+
+  const handleAddTodoAfter = async (text: string, afterTodoId: string, indent: number = 0) => {
+    const afterTodo = todos.find((t) => t.id === afterTodoId);
+    if (!afterTodo) return;
+
+    // Generate a temporary ID for optimistic update
+    const tempId = crypto.randomUUID();
+    const afterIndex = todos.findIndex((t) => t.id === afterTodoId);
+
+    // Create the new todo optimistically
+    const newTodo: Todo = {
+      id: tempId,
+      text,
+      completed: false,
+      sectionId: afterTodo.sectionId,
+      order: afterTodo.order + 0.5,
+      indent,
+      createdAt: Date.now(),
+      completedAt: null,
+    };
+
+    // Update state immediately (optimistic)
+    const newTodos = [...todos];
+    newTodos.splice(afterIndex + 1, 0, newTodo);
+    setTodos(newTodos);
+
+    // Focus the new todo's input
+    setTimeout(() => {
+      const newInput = document.querySelector(`[data-drag-id="${tempId}"] .todo-text-input`) as HTMLInputElement;
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(0, 0);
+      }
+    }, 0);
+
+    // Sync to DB in background
+    addTodo(text, afterTodo.sectionId, indent).then(async (dbTodo) => {
+      // Check if the temp input is currently focused
+      const tempInput = document.querySelector(`[data-drag-id="${tempId}"] .todo-text-input`) as HTMLInputElement;
+      const wasFocused = document.activeElement === tempInput;
+      const cursorPos = tempInput?.selectionStart ?? 0;
+
+      // Simply replace temp ID with real todo, keeping same position
+      setTodos(current => {
+        const updated = current.map(t => t.id === tempId ? { ...dbTodo, order: t.order } : t);
+        // Reorder in background to persist positions
+        reorderTodos(updated).catch(console.error);
+        return updated;
+      });
+
+      // Restore focus if it was focused
+      if (wasFocused) {
+        setTimeout(() => {
+          const newInput = document.querySelector(`[data-drag-id="${dbTodo.id}"] .todo-text-input`) as HTMLInputElement;
+          if (newInput) {
+            newInput.focus();
+            newInput.setSelectionRange(cursorPos, cursorPos);
+          }
+        }, 0);
+      }
+    }).catch(console.error);
   };
 
   const handleToggleTodo = (id: string) => {
@@ -299,6 +515,7 @@ export default function App() {
     if (!todo) return;
 
     const isCompleting = !todo.completed;
+    const previousTodos = [...todos]; // Save for undo
     const updatedTodo = {
       ...todo,
       completed: isCompleting,
@@ -310,21 +527,41 @@ export default function App() {
 
     // If completing and auto-sort is enabled, move to bottom of section
     if (isCompleting && settings.autoSortCompletedTodos) {
+      // Find all todos in the same section
       const sectionTodos = newTodos.filter((t) => t.sectionId === todo.sectionId);
-      const otherTodos = newTodos.filter((t) => t.sectionId !== todo.sectionId);
-      const todoIndex = sectionTodos.findIndex((t) => t.id === id);
+      const completedTodoIndex = sectionTodos.findIndex((t) => t.id === id);
 
-      if (todoIndex !== -1 && todoIndex < sectionTodos.length - 1) {
-        const reorderedSection = [
-          ...sectionTodos.slice(0, todoIndex),
-          ...sectionTodos.slice(todoIndex + 1),
-          sectionTodos[todoIndex],
-        ];
-        newTodos = [...otherTodos, ...reorderedSection];
+      // Only reorder if not already at the bottom of the section
+      if (completedTodoIndex !== -1 && completedTodoIndex < sectionTodos.length - 1) {
+        // Find the last todo in this section (in the full array)
+        const lastSectionTodo = sectionTodos[sectionTodos.length - 1];
+        const lastSectionTodoGlobalIndex = newTodos.findIndex((t) => t.id === lastSectionTodo.id);
+        const completedTodoGlobalIndex = newTodos.findIndex((t) => t.id === id);
+
+        // Remove from current position and insert after the last section todo
+        const [removed] = newTodos.splice(completedTodoGlobalIndex, 1);
+        // Adjust index since we removed an item
+        const insertIndex = completedTodoGlobalIndex < lastSectionTodoGlobalIndex
+          ? lastSectionTodoGlobalIndex
+          : lastSectionTodoGlobalIndex + 1;
+        newTodos.splice(insertIndex, 0, removed);
       }
     }
 
     setTodos(newTodos);
+
+    // Push undo action
+    pushUndo({
+      type: 'toggle-todo',
+      description: `${isCompleting ? 'Complete' : 'Uncomplete'} "${todo.text.slice(0, 30)}"`,
+      undo: () => {
+        setTodos(previousTodos);
+        updateTodo(todo).catch(console.error);
+        if (isCompleting && settings.autoSortCompletedTodos) {
+          reorderTodos(previousTodos).catch(console.error);
+        }
+      },
+    });
 
     // Sync to DB in background
     updateTodo(updatedTodo).catch(console.error);
@@ -334,8 +571,33 @@ export default function App() {
   };
 
   const handleDeleteTodo = (id: string) => {
+    const todo = todos.find((t) => t.id === id);
+    if (!todo) return;
+
+    const todoIndex = todos.findIndex((t) => t.id === id);
+
     // Update state immediately (optimistic)
     setTodos((prev) => prev.filter((t) => t.id !== id));
+
+    // Push undo action
+    pushUndo({
+      type: 'delete-todo',
+      description: `Delete "${todo.text.slice(0, 30)}"`,
+      undo: () => {
+        // Restore todo at original position
+        setTodos((prev) => {
+          const newTodos = [...prev];
+          newTodos.splice(todoIndex, 0, todo);
+          return newTodos;
+        });
+        // Re-add to DB
+        addTodo(todo.text, todo.sectionId, todo.indent).then((dbTodo) => {
+          // Update with correct ID from DB
+          setTodos((prev) => prev.map((t) => t.id === todo.id ? { ...dbTodo, order: todo.order } : t));
+        }).catch(console.error);
+      },
+    });
+
     // Sync to DB in background
     deleteTodo(id).catch(console.error);
   };
@@ -344,9 +606,23 @@ export default function App() {
     const todo = todos.find((t) => t.id === id);
     if (!todo) return;
 
+    const previousText = todo.text;
+    if (text === previousText) return; // No change
+
     const updatedTodo = { ...todo, text };
     // Update state immediately (optimistic)
     setTodos((prev) => prev.map((t) => (t.id === id ? updatedTodo : t)));
+
+    // Push undo action
+    pushUndo({
+      type: 'edit-todo',
+      description: `Edit "${previousText.slice(0, 20)}" → "${text.slice(0, 20)}"`,
+      undo: () => {
+        setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text: previousText } : t)));
+        updateTodo({ ...todo, text: previousText }).catch(console.error);
+      },
+    });
+
     // Sync to DB in background
     updateTodo(updatedTodo).catch(console.error);
   };
@@ -387,12 +663,15 @@ export default function App() {
     });
   };
 
-  const handleToggleSection = async (id: string) => {
+  const handleToggleSection = (id: string) => {
     const section = sections.find((s) => s.id === id);
-    if (section) {
-      await updateSection({ ...section, collapsed: !section.collapsed });
-      loadData();
-    }
+    if (!section) return;
+
+    const updatedSection = { ...section, collapsed: !section.collapsed };
+    // Update state immediately (optimistic)
+    setSections((prev) => prev.map((s) => (s.id === id ? updatedSection : s)));
+    // Sync to DB in background
+    updateSection(updatedSection).catch(console.error);
   };
 
   const handleDeleteSection = async (id: string) => {
@@ -413,8 +692,10 @@ export default function App() {
   };
 
   const handleReorderSections = async (reorderedSections: ToggleSection[]) => {
-    setSections(reorderedSections);
-    await withSaveStatus(() => reorderSections(reorderedSections));
+    // Update order property on each section to match new position
+    const sectionsWithUpdatedOrder = reorderedSections.map((s, i) => ({ ...s, order: i }));
+    setSections(sectionsWithUpdatedOrder);
+    await withSaveStatus(() => reorderSections(sectionsWithUpdatedOrder));
   };
 
   const handleMoveToToday = async (sourceSectionId: string) => {
@@ -515,12 +796,15 @@ export default function App() {
     }
   };
 
-  const handleEditQuarterlyGoal = async (id: string, updates: { title?: string; description?: string }) => {
+  const handleEditQuarterlyGoal = (id: string, updates: { title?: string; description?: string; subtasks?: GoalSubtask[] }) => {
     const goal = quarterlyGoals.find((g) => g.id === id);
-    if (goal) {
-      await updateQuarterlyGoal({ ...goal, ...updates });
-      loadData();
-    }
+    if (!goal) return;
+
+    const updatedGoal = { ...goal, ...updates };
+    // Update state immediately (optimistic)
+    setQuarterlyGoals((prev) => prev.map((g) => (g.id === id ? updatedGoal : g)));
+    // Sync to DB in background
+    updateQuarterlyGoal(updatedGoal).catch(console.error);
   };
 
   const handleReorderQuarterlyGoals = async (reorderedGoals: Goal[]) => {
@@ -564,9 +848,11 @@ export default function App() {
     }
   };
 
-  const handleFriendsSectionsChange = (sections: FriendSection[]) => {
+  const handleFriendsSectionsChange = async (sections: FriendSection[]) => {
     setFriendsSections(sections);
-    localStorage.setItem('friendsSections', JSON.stringify(sections));
+    // Save to database
+    const currentSettings = await getUserSettings();
+    await saveUserSettings({ ...currentSettings, friendsSections: sections });
   };
 
   // Cookie Jar handler
@@ -591,6 +877,34 @@ export default function App() {
   const handleSettingsChange = (newSettings: AppSettings) => {
     setSettings(newSettings);
     localStorage.setItem('appSettings', JSON.stringify(newSettings));
+  };
+
+  // Goal section title handlers
+  const startEditingGoalSection = (sectionKey: string) => {
+    setEditingGoalSection(sectionKey);
+    setEditingGoalSectionValue(goalSectionTitles[sectionKey] || '');
+  };
+
+  const saveGoalSectionTitle = async () => {
+    if (!editingGoalSection) return;
+    const trimmed = editingGoalSectionValue.trim();
+    if (trimmed && trimmed !== goalSectionTitles[editingGoalSection]) {
+      const updated = { ...goalSectionTitles, [editingGoalSection]: trimmed };
+      setGoalSectionTitles(updated);
+      // Save to database
+      const currentSettings = await getUserSettings();
+      await saveUserSettings({ ...currentSettings, goalSectionTitles: updated });
+    }
+    setEditingGoalSection(null);
+  };
+
+  const handleGoalSectionKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveGoalSectionTitle();
+    } else if (e.key === 'Escape') {
+      setEditingGoalSection(null);
+    }
   };
 
   // Sort all completed todos to bottom of their sections
@@ -683,128 +997,277 @@ export default function App() {
             {saveStatus === 'saving' ? 'Saving...' : '✓ Saved'}
           </span>
         )}
-        <button className="settings-btn" onClick={() => setCurrentPage('settings')} title="Settings">
-          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
-            <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-          </svg>
-        </button>
+        <div className="header-buttons">
+          <button className="focus-btn" onClick={collapseAllExceptTodos} title="Focus Mode - Collapse all except To-Dos">
+            Focus
+          </button>
+          <button className="expand-btn" onClick={expandAllSections} title="Expand all sections">
+            Expand All
+          </button>
+          <button className="settings-btn" onClick={() => setCurrentPage('settings')} title="Settings">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+              <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+            </svg>
+          </button>
+        </div>
       </header>
 
-      <DailySummaryCard
-        todos={todos}
-        sections={sections}
-        routines={routines}
-      />
+      <section className="app-section collapsible-section">
+        <h2
+          className="collapsible-header"
+          onClick={() => toggleSectionCollapsed('dailySummary')}
+        >
+          <span className={`collapse-arrow ${collapsedSections.dailySummary ? '' : 'open'}`}>▶</span>
+          Today's Focus
+        </h2>
+        {!collapsedSections.dailySummary && (
+          <DailySummaryCard
+            todos={todos}
+            sections={sections}
+            routines={routines}
+          />
+        )}
+      </section>
 
-      <section className="app-section quick-notes-section">
-        <h2>Quick Thoughts</h2>
-        <QuickNotes
-          content={quickNotesContent}
-          onSave={handleSaveQuickNotes}
-        />
+      <section className="app-section quick-notes-section collapsible-section">
+        <h2
+          className="collapsible-header"
+          onClick={() => toggleSectionCollapsed('quickThoughts')}
+        >
+          <span className={`collapse-arrow ${collapsedSections.quickThoughts ? '' : 'open'}`}>▶</span>
+          Quick Thoughts
+        </h2>
+        {!collapsedSections.quickThoughts && (
+          <QuickNotes
+            content={quickNotesContent}
+            onSave={handleSaveQuickNotes}
+          />
+        )}
       </section>
 
       <main>
         <div className="column">
           {journalNeedsAttention && (
-            <section className="app-section journal-attention">
-              <h2>Gratitude Journal</h2>
-              <JournalCard
-                entry={todayJournal}
-                onOpenEditor={() => setShowJournalEditor(true)}
-                onViewAll={() => setCurrentPage('journal')}
-              />
+            <section className="app-section journal-attention collapsible-section">
+              <h2
+                className="collapsible-header"
+                onClick={() => toggleSectionCollapsed('gratitudeJournal')}
+              >
+                <span className={`collapse-arrow ${collapsedSections.gratitudeJournal ? '' : 'open'}`}>▶</span>
+                Gratitude Journal
+              </h2>
+              {!collapsedSections.gratitudeJournal && (
+                <JournalCard
+                  entry={todayJournal}
+                  onOpenEditor={() => setShowJournalEditor(true)}
+                  onViewAll={() => setCurrentPage('journal')}
+                />
+              )}
             </section>
           )}
 
-          <section className="app-section">
-            <h2>To-Dos</h2>
-            <TodoList
-              todos={todos}
-              sections={sections}
-              confettiEnabled={settings.confettiEnabled}
-              onToggleTodo={handleToggleTodo}
-              onDeleteTodo={handleDeleteTodo}
-              onEditTodo={handleEditTodo}
-              onIndentTodo={handleIndentTodo}
-              onAddTodo={handleAddTodo}
-              onMoveTodo={handleMoveTodo}
-              onReorderTodos={handleReorderTodos}
-              onToggleSection={handleToggleSection}
-              onDeleteSection={handleDeleteSection}
-              onEditSection={handleEditSection}
-              onAddSection={handleAddSection}
-              onReorderSections={handleReorderSections}
-              onMoveToToday={handleMoveToToday}
-            />
+          <section className="app-section collapsible-section">
+            <h2
+              className="collapsible-header"
+              onClick={() => toggleSectionCollapsed('todos')}
+            >
+              <span className={`collapse-arrow ${collapsedSections.todos ? '' : 'open'}`}>▶</span>
+              To-Dos
+            </h2>
+            {!collapsedSections.todos && (
+              <TodoList
+                todos={todos}
+                sections={sections}
+                confettiEnabled={settings.confettiEnabled}
+                onToggleTodo={handleToggleTodo}
+                onDeleteTodo={handleDeleteTodo}
+                onEditTodo={handleEditTodo}
+                onIndentTodo={handleIndentTodo}
+                onAddTodo={handleAddTodo}
+                onAddTodoAfter={handleAddTodoAfter}
+                onMoveTodo={handleMoveTodo}
+                onReorderTodos={handleReorderTodos}
+                onToggleSection={handleToggleSection}
+                onDeleteSection={handleDeleteSection}
+                onEditSection={handleEditSection}
+                onAddSection={handleAddSection}
+                onReorderSections={handleReorderSections}
+                onMoveToToday={handleMoveToToday}
+              />
+            )}
           </section>
 
           {!journalNeedsAttention && (
-            <section className="app-section">
-              <h2>Gratitude Journal</h2>
-              <JournalCard
-                entry={todayJournal}
-                onOpenEditor={() => setShowJournalEditor(true)}
-                onViewAll={() => setCurrentPage('journal')}
-              />
+            <section className="app-section collapsible-section">
+              <h2
+                className="collapsible-header"
+                onClick={() => toggleSectionCollapsed('gratitudeJournal')}
+              >
+                <span className={`collapse-arrow ${collapsedSections.gratitudeJournal ? '' : 'open'}`}>▶</span>
+                Gratitude Journal
+              </h2>
+              {!collapsedSections.gratitudeJournal && (
+                <JournalCard
+                  entry={todayJournal}
+                  onOpenEditor={() => setShowJournalEditor(true)}
+                  onViewAll={() => setCurrentPage('journal')}
+                />
+              )}
             </section>
           )}
 
-          <section className="app-section">
-            <h2>Reading Notes</h2>
-            <RandomInsightCard
-              note={randomNote}
-              onAddNote={() => setShowAddNoteModal(true)}
-              onViewAll={() => setShowViewNotesModal(true)}
-            />
+          <section className="app-section collapsible-section">
+            <h2
+              className="collapsible-header"
+              onClick={() => toggleSectionCollapsed('readingNotes')}
+            >
+              <span className={`collapse-arrow ${collapsedSections.readingNotes ? '' : 'open'}`}>▶</span>
+              Reading Notes
+            </h2>
+            {!collapsedSections.readingNotes && (
+              <RandomInsightCard
+                note={randomNote}
+                onAddNote={() => setShowAddNoteModal(true)}
+                onViewAll={() => setShowViewNotesModal(true)}
+              />
+            )}
           </section>
         </div>
 
         <div className="column">
-          <section className="app-section">
-            <h2>Routines</h2>
-            <AddRoutineForm onAdd={handleAddRoutine} />
-            <RoutineList
-              routines={routines}
-              onIncrement={handleIncrement}
-              onDecrement={handleDecrement}
-              onDelete={handleDeleteRoutine}
-              onEdit={handleEditRoutine}
-              onReorder={handleReorderRoutines}
-            />
-          </section>
-
-          <section className="app-section">
-            <h2>2026 Q1 Goals</h2>
-            <GoalList
-              goals={quarterlyGoals}
-              onDelete={handleDeleteQuarterlyGoal}
-              onEdit={handleEditQuarterlyGoal}
-              onReorder={handleReorderQuarterlyGoals}
-              onAdd={handleAddQuarterlyGoal}
-            />
-          </section>
-
-          <section className="app-section">
-            <h2>2026 Goals</h2>
-            <GoalList
-              goals={yearlyGoals}
-              onDelete={handleDeleteYearlyGoal}
-              onEdit={handleEditYearlyGoal}
-              onReorder={handleReorderYearlyGoals}
-              onAdd={handleAddYearlyGoal}
-            />
+          <section className="app-section collapsible-section">
+            <h2
+              className="collapsible-header"
+              onClick={() => toggleSectionCollapsed('routines')}
+            >
+              <span className={`collapse-arrow ${collapsedSections.routines ? '' : 'open'}`}>▶</span>
+              Routines
+            </h2>
+            {!collapsedSections.routines && (
+              <>
+                <AddRoutineForm onAdd={handleAddRoutine} />
+                <RoutineList
+                  routines={routines}
+                  onIncrement={handleIncrement}
+                  onDecrement={handleDecrement}
+                  onDelete={handleDeleteRoutine}
+                  onEdit={handleEditRoutine}
+                  onReorder={handleReorderRoutines}
+                />
+              </>
+            )}
           </section>
 
           <section className="app-section collapsible-section">
             <h2
               className="collapsible-header"
-              onClick={() => setLifeGoalsCollapsed(!lifeGoalsCollapsed)}
+              onClick={() => toggleSectionCollapsed('q1Goals')}
             >
-              <span className={`collapse-arrow ${lifeGoalsCollapsed ? '' : 'open'}`}>▶</span>
-              Life Goals
+              <span className={`collapse-arrow ${collapsedSections.q1Goals ? '' : 'open'}`}>▶</span>
+              {editingGoalSection === 'q1Goals' ? (
+                <input
+                  type="text"
+                  className="goal-section-title-input"
+                  value={editingGoalSectionValue}
+                  onChange={(e) => setEditingGoalSectionValue(e.target.value)}
+                  onBlur={saveGoalSectionTitle}
+                  onKeyDown={handleGoalSectionKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="goal-section-title"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEditingGoalSection('q1Goals');
+                  }}
+                >
+                  {goalSectionTitles.q1Goals}
+                </span>
+              )}
             </h2>
-            {!lifeGoalsCollapsed && (
+            {!collapsedSections.q1Goals && (
+              <GoalList
+                goals={quarterlyGoals}
+                onDelete={handleDeleteQuarterlyGoal}
+                onEdit={handleEditQuarterlyGoal}
+                onReorder={handleReorderQuarterlyGoals}
+                onAdd={handleAddQuarterlyGoal}
+              />
+            )}
+          </section>
+
+          <section className="app-section collapsible-section">
+            <h2
+              className="collapsible-header"
+              onClick={() => toggleSectionCollapsed('yearlyGoals')}
+            >
+              <span className={`collapse-arrow ${collapsedSections.yearlyGoals ? '' : 'open'}`}>▶</span>
+              {editingGoalSection === 'yearlyGoals' ? (
+                <input
+                  type="text"
+                  className="goal-section-title-input"
+                  value={editingGoalSectionValue}
+                  onChange={(e) => setEditingGoalSectionValue(e.target.value)}
+                  onBlur={saveGoalSectionTitle}
+                  onKeyDown={handleGoalSectionKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="goal-section-title"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEditingGoalSection('yearlyGoals');
+                  }}
+                >
+                  {goalSectionTitles.yearlyGoals}
+                </span>
+              )}
+            </h2>
+            {!collapsedSections.yearlyGoals && (
+              <GoalList
+                goals={yearlyGoals}
+                onDelete={handleDeleteYearlyGoal}
+                onEdit={handleEditYearlyGoal}
+                onReorder={handleReorderYearlyGoals}
+                onAdd={handleAddYearlyGoal}
+              />
+            )}
+          </section>
+
+          <section className="app-section collapsible-section">
+            <h2
+              className="collapsible-header"
+              onClick={() => toggleSectionCollapsed('lifeGoals')}
+            >
+              <span className={`collapse-arrow ${collapsedSections.lifeGoals ? '' : 'open'}`}>▶</span>
+              {editingGoalSection === 'lifeGoals' ? (
+                <input
+                  type="text"
+                  className="goal-section-title-input"
+                  value={editingGoalSectionValue}
+                  onChange={(e) => setEditingGoalSectionValue(e.target.value)}
+                  onBlur={saveGoalSectionTitle}
+                  onKeyDown={handleGoalSectionKeyDown}
+                  onClick={(e) => e.stopPropagation()}
+                  autoFocus
+                />
+              ) : (
+                <span
+                  className="goal-section-title"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    startEditingGoalSection('lifeGoals');
+                  }}
+                >
+                  {goalSectionTitles.lifeGoals}
+                </span>
+              )}
+            </h2>
+            {!collapsedSections.lifeGoals && (
               <GoalList
                 goals={lifeGoals}
                 onDelete={handleDeleteLifeGoal}
@@ -815,20 +1278,36 @@ export default function App() {
             )}
           </section>
 
-          <section className="app-section">
-            <h2>Close Friends</h2>
-            <FriendsCard
-              friends={friends}
-              onViewAll={() => setCurrentPage('friends')}
-            />
+          <section className="app-section collapsible-section">
+            <h2
+              className="collapsible-header"
+              onClick={() => toggleSectionCollapsed('closeFriends')}
+            >
+              <span className={`collapse-arrow ${collapsedSections.closeFriends ? '' : 'open'}`}>▶</span>
+              Close Friends
+            </h2>
+            {!collapsedSections.closeFriends && (
+              <FriendsCard
+                friends={friends}
+                onViewAll={() => setCurrentPage('friends')}
+              />
+            )}
           </section>
 
-          <section className="app-section">
-            <h2>Cookie Jar</h2>
-            <CookieJar
-              content={cookieJarContent}
-              onSave={handleSaveCookieJar}
-            />
+          <section className="app-section collapsible-section">
+            <h2
+              className="collapsible-header"
+              onClick={() => toggleSectionCollapsed('cookieJar')}
+            >
+              <span className={`collapse-arrow ${collapsedSections.cookieJar ? '' : 'open'}`}>▶</span>
+              Cookie Jar
+            </h2>
+            {!collapsedSections.cookieJar && (
+              <CookieJar
+                content={cookieJarContent}
+                onSave={handleSaveCookieJar}
+              />
+            )}
           </section>
 
           <section className="app-section">
