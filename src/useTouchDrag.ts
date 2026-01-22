@@ -2,6 +2,9 @@ import { useRef, useCallback, useEffect } from 'react';
 
 export type DropPosition = 'above' | 'below' | null;
 
+const LONG_PRESS_DURATION = 400; // ms before drag starts
+const LONG_PRESS_MOVE_THRESHOLD = 10; // px - cancel if moved more than this
+
 interface TouchDragState {
   isDragging: boolean;
   draggedId: string | null;
@@ -14,6 +17,9 @@ interface TouchDragState {
   scrollInterval: number | null;
   lastTargetId: string | null;
   lastPosition: DropPosition;
+  longPressTimer: number | null;
+  pendingDragId: string | null;
+  pendingElement: HTMLElement | null;
 }
 
 interface UseTouchDragOptions<T> {
@@ -22,6 +28,13 @@ interface UseTouchDragOptions<T> {
   targetSelector: string;
   onReorder: (items: T[]) => void;
   onDragStateChange?: (draggedId: string | null, targetId: string | null, position: DropPosition) => void;
+}
+
+// Trigger haptic feedback if available
+function triggerHaptic() {
+  if (navigator.vibrate) {
+    navigator.vibrate(50); // 50ms vibration
+  }
 }
 
 export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, onDragStateChange }: UseTouchDragOptions<T>) {
@@ -37,10 +50,17 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
     scrollInterval: null,
     lastTargetId: null,
     lastPosition: null,
+    longPressTimer: null,
+    pendingDragId: null,
+    pendingElement: null,
   });
 
   const cleanupPreview = useCallback(() => {
     const state = stateRef.current;
+    if (state.longPressTimer) {
+      clearTimeout(state.longPressTimer);
+      state.longPressTimer = null;
+    }
     if (state.preview) {
       state.preview.remove();
       state.preview = null;
@@ -52,39 +72,26 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
     if (state.draggedElement) {
       state.draggedElement.style.opacity = '';
     }
+    if (state.pendingElement) {
+      state.pendingElement.classList.remove('touch-pending');
+    }
+    state.pendingDragId = null;
+    state.pendingElement = null;
     // Remove any drop indicators
-    document.querySelectorAll('.touch-drop-above, .touch-drop-below').forEach(el => {
-      el.classList.remove('touch-drop-above', 'touch-drop-below');
+    document.querySelectorAll('.touch-drop-above, .touch-drop-below, .touch-pending').forEach(el => {
+      el.classList.remove('touch-drop-above', 'touch-drop-below', 'touch-pending');
     });
   }, []);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent, id: string) => {
-    const touch = e.touches[0];
-    const element = e.currentTarget as HTMLElement;
+  const startDragging = useCallback((element: HTMLElement, id: string, touchX: number, touchY: number) => {
     const state = stateRef.current;
     const rect = element.getBoundingClientRect();
-
-    // Check if touch started on drag handle
-    const handle = element.querySelector('.drag-handle, .routine-drag-handle, .goal-drag-handle, .section-drag-handle, .friend-drag-handle');
-    if (handle) {
-      const handleRect = handle.getBoundingClientRect();
-      const touchX = touch.clientX;
-      const touchY = touch.clientY;
-      // Only start drag if touch is on or near the handle
-      const isOnHandle = touchX >= handleRect.left - 20 && touchX <= handleRect.right + 20 &&
-                         touchY >= handleRect.top - 10 && touchY <= handleRect.bottom + 10;
-      if (!isOnHandle) {
-        return;
-      }
-    }
 
     state.isDragging = true;
     state.draggedId = id;
     state.draggedElement = element;
-    state.startY = touch.clientY;
-    state.startX = touch.clientX;
-    state.offsetY = touch.clientY - rect.top;
-    state.offsetX = touch.clientX - rect.left;
+    state.offsetY = touchY - rect.top;
+    state.offsetX = touchX - rect.left;
 
     // Create preview clone
     const preview = element.cloneNode(true) as HTMLElement;
@@ -106,17 +113,76 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
 
     // Dim the original element
     element.style.opacity = '0.3';
+    element.classList.remove('touch-pending');
+
+    // Trigger haptic feedback
+    triggerHaptic();
 
     onDragStateChange?.(id, null, null);
   }, [onDragStateChange]);
 
+  const handleTouchStart = useCallback((e: React.TouchEvent, id: string) => {
+    const touch = e.touches[0];
+    const element = e.currentTarget as HTMLElement;
+    const state = stateRef.current;
+
+    // Store start position for move threshold check
+    state.startY = touch.clientY;
+    state.startX = touch.clientX;
+    state.pendingDragId = id;
+    state.pendingElement = element;
+
+    // Check if touch started on drag handle - if so, start immediately
+    const handle = element.querySelector('.drag-handle, .routine-drag-handle, .goal-drag-handle, .section-drag-handle, .friend-drag-handle, .subtask-drag-handle');
+    if (handle) {
+      const handleRect = handle.getBoundingClientRect();
+      const touchX = touch.clientX;
+      const touchY = touch.clientY;
+      const isOnHandle = touchX >= handleRect.left - 20 && touchX <= handleRect.right + 20 &&
+                         touchY >= handleRect.top - 10 && touchY <= handleRect.bottom + 10;
+      if (isOnHandle) {
+        // Start dragging immediately when touching handle
+        startDragging(element, id, touch.clientX, touch.clientY);
+        return;
+      }
+    }
+
+    // Otherwise, start long press timer
+    element.classList.add('touch-pending');
+
+    // Store the initial touch position for the timer callback
+    const initialX = touch.clientX;
+    const initialY = touch.clientY;
+
+    state.longPressTimer = window.setTimeout(() => {
+      // Use stored position since touch event may be stale
+      startDragging(element, id, initialX, initialY);
+      state.longPressTimer = null;
+    }, LONG_PRESS_DURATION);
+  }, [startDragging]);
+
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     const state = stateRef.current;
+    const touch = e.touches[0];
+
+    // If we have a pending long press, check if moved too much
+    if (state.longPressTimer && state.pendingElement) {
+      const deltaX = Math.abs(touch.clientX - state.startX);
+      const deltaY = Math.abs(touch.clientY - state.startY);
+      if (deltaX > LONG_PRESS_MOVE_THRESHOLD || deltaY > LONG_PRESS_MOVE_THRESHOLD) {
+        // Cancel the long press - user is scrolling
+        clearTimeout(state.longPressTimer);
+        state.longPressTimer = null;
+        state.pendingElement.classList.remove('touch-pending');
+        state.pendingElement = null;
+        state.pendingDragId = null;
+        return;
+      }
+    }
+
     if (!state.isDragging || !state.preview || !state.draggedElement) return;
 
     e.preventDefault(); // Prevent scrolling while dragging
-
-    const touch = e.touches[0];
 
     // Move preview
     state.preview.style.top = `${touch.clientY - state.offsetY}px`;
@@ -173,6 +239,18 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
 
   const handleTouchEnd = useCallback(() => {
     const state = stateRef.current;
+
+    // Cancel any pending long press
+    if (state.longPressTimer) {
+      clearTimeout(state.longPressTimer);
+      state.longPressTimer = null;
+    }
+    if (state.pendingElement) {
+      state.pendingElement.classList.remove('touch-pending');
+      state.pendingElement = null;
+      state.pendingDragId = null;
+    }
+
     if (!state.isDragging) return;
 
     const draggedId = state.draggedId;

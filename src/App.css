@@ -394,6 +394,13 @@ main {
   opacity: 1;
 }
 
+/* Long press pending state */
+.touch-pending {
+  background: #f5f0eb !important;
+  transform: scale(1.01);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
 /* Confetti animation */
 @keyframes confetti-burst {
   0% {
