@@ -28,9 +28,18 @@ export function GoalCard({
   const [editValue, setEditValue] = useState('');
   const [newSubtask, setNewSubtask] = useState('');
   const [expanded, setExpanded] = useState(false);
+  const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
+  const [editingSubtaskText, setEditingSubtaskText] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const subtaskInputRef = useRef<HTMLInputElement>(null);
+  const editSubtaskInputRef = useRef<HTMLInputElement>(null);
+
+  // Subtask drag state
+  const [draggedSubtaskId, setDraggedSubtaskId] = useState<string | null>(null);
+  const [dropTargetSubtaskId, setDropTargetSubtaskId] = useState<string | null>(null);
+  const [subtaskDropPosition, setSubtaskDropPosition] = useState<DropPosition>(null);
+  const draggedSubtaskRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (editingField === 'title' && inputRef.current) {
@@ -94,6 +103,106 @@ export function GoalCard({
   const deleteSubtask = (subtaskId: string) => {
     const updatedSubtasks = (goal.subtasks || []).filter((st) => st.id !== subtaskId);
     onEdit(goal.id, { subtasks: updatedSubtasks });
+  };
+
+  const startEditingSubtask = (subtask: GoalSubtask) => {
+    setEditingSubtaskId(subtask.id);
+    setEditingSubtaskText(subtask.text);
+    setTimeout(() => editSubtaskInputRef.current?.focus(), 0);
+  };
+
+  const saveSubtaskEdit = () => {
+    if (!editingSubtaskId) return;
+    const trimmed = editingSubtaskText.trim();
+    if (trimmed) {
+      const updatedSubtasks = (goal.subtasks || []).map((st) =>
+        st.id === editingSubtaskId ? { ...st, text: trimmed } : st
+      );
+      onEdit(goal.id, { subtasks: updatedSubtasks });
+    }
+    setEditingSubtaskId(null);
+    setEditingSubtaskText('');
+  };
+
+  const handleSubtaskEditKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      saveSubtaskEdit();
+    } else if (e.key === 'Escape') {
+      setEditingSubtaskId(null);
+      setEditingSubtaskText('');
+    }
+  };
+
+  // Subtask drag handlers
+  const handleSubtaskDragStart = (e: React.DragEvent, subtaskId: string) => {
+    e.stopPropagation();
+    draggedSubtaskRef.current = subtaskId;
+    setDraggedSubtaskId(subtaskId);
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleSubtaskDragOver = (e: React.DragEvent, subtaskId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+
+    if (!draggedSubtaskRef.current || draggedSubtaskRef.current === subtaskId) {
+      setDropTargetSubtaskId(null);
+      setSubtaskDropPosition(null);
+      return;
+    }
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const position: DropPosition = e.clientY < midY ? 'above' : 'below';
+
+    setDropTargetSubtaskId(subtaskId);
+    setSubtaskDropPosition(position);
+  };
+
+  const handleSubtaskDragLeave = () => {
+    setDropTargetSubtaskId(null);
+    setSubtaskDropPosition(null);
+  };
+
+  const handleSubtaskDrop = (e: React.DragEvent, targetSubtaskId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!draggedSubtaskRef.current || draggedSubtaskRef.current === targetSubtaskId) return;
+
+    const subtasksList = goal.subtasks || [];
+    const draggedIndex = subtasksList.findIndex((st) => st.id === draggedSubtaskRef.current);
+    const targetIndex = subtasksList.findIndex((st) => st.id === targetSubtaskId);
+
+    if (draggedIndex === -1 || targetIndex === -1) return;
+
+    const newSubtasks = [...subtasksList];
+    const [dragged] = newSubtasks.splice(draggedIndex, 1);
+
+    let insertIndex = targetIndex;
+    if (subtaskDropPosition === 'below') {
+      insertIndex = draggedIndex < targetIndex ? targetIndex : targetIndex + 1;
+    } else {
+      insertIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    }
+
+    newSubtasks.splice(insertIndex, 0, dragged);
+    onEdit(goal.id, { subtasks: newSubtasks });
+
+    resetSubtaskDragState();
+  };
+
+  const handleSubtaskDragEnd = () => {
+    resetSubtaskDragState();
+  };
+
+  const resetSubtaskDragState = () => {
+    setDraggedSubtaskId(null);
+    setDropTargetSubtaskId(null);
+    setSubtaskDropPosition(null);
+    draggedSubtaskRef.current = null;
   };
 
   const subtasks = goal.subtasks || [];
@@ -160,9 +269,18 @@ export function GoalCard({
               {goal.description}
             </span>
           ) : null}
-          <div className="goal-subtasks">
+          <div className="goal-subtasks" onDragEnd={handleSubtaskDragEnd}>
             {subtasks.map((subtask) => (
-              <div key={subtask.id} className={`goal-subtask ${subtask.completed ? 'completed' : ''}`}>
+              <div
+                key={subtask.id}
+                className={`goal-subtask ${subtask.completed ? 'completed' : ''} ${draggedSubtaskId === subtask.id ? 'dragging' : ''} ${dropTargetSubtaskId === subtask.id && subtaskDropPosition ? `drop-${subtaskDropPosition}` : ''}`}
+                draggable={editingSubtaskId !== subtask.id}
+                onDragStart={(e) => handleSubtaskDragStart(e, subtask.id)}
+                onDragOver={(e) => handleSubtaskDragOver(e, subtask.id)}
+                onDragLeave={handleSubtaskDragLeave}
+                onDrop={(e) => handleSubtaskDrop(e, subtask.id)}
+              >
+                <span className="subtask-drag-handle">⋮⋮</span>
                 <label className="subtask-checkbox">
                   <input
                     type="checkbox"
@@ -171,7 +289,19 @@ export function GoalCard({
                   />
                   <span className="checkmark"></span>
                 </label>
-                <span className="subtask-text">{subtask.text}</span>
+                {editingSubtaskId === subtask.id ? (
+                  <input
+                    ref={editSubtaskInputRef}
+                    type="text"
+                    className="subtask-edit-input"
+                    value={editingSubtaskText}
+                    onChange={(e) => setEditingSubtaskText(e.target.value)}
+                    onBlur={saveSubtaskEdit}
+                    onKeyDown={handleSubtaskEditKeyDown}
+                  />
+                ) : (
+                  <span className="subtask-text" onClick={() => startEditingSubtask(subtask)}>{subtask.text}</span>
+                )}
                 <button className="subtask-delete" onClick={() => deleteSubtask(subtask.id)}>×</button>
               </div>
             ))}

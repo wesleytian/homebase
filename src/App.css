@@ -988,6 +988,64 @@ main {
   border-style: solid;
 }
 
+.subtask-drag-handle {
+  font-size: 0.7rem;
+  color: #d4cfc8;
+  cursor: grab;
+  user-select: none;
+  margin-right: -4px;
+}
+
+.goal-subtask:hover .subtask-drag-handle {
+  color: #a39b91;
+}
+
+.goal-subtask.dragging {
+  opacity: 0.5;
+}
+
+.goal-subtask {
+  position: relative;
+}
+
+.goal-subtask::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #9b8cff;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.goal-subtask.drop-above::before {
+  top: -2px;
+  opacity: 1;
+}
+
+.goal-subtask.drop-below::before {
+  bottom: -2px;
+  opacity: 1;
+}
+
+.subtask-text {
+  flex: 1;
+  cursor: text;
+}
+
+.subtask-edit-input {
+  flex: 1;
+  font-size: inherit;
+  font-family: inherit;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid #9b8cff;
+  padding: 0;
+  outline: none;
+}
+
 .subtask-add-form input::placeholder {
   color: #c4beb6;
 }
