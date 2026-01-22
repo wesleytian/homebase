@@ -33,6 +33,8 @@ export function RoutineCard({
   const inputRef = useRef<HTMLInputElement>(null);
 
   const isComplete = routine.completedThisWeek >= routine.frequencyPerWeek;
+  const isDaily = routine.frequencyPerWeek === 7;
+  const completedToday = isDaily && routine.completedToday;
 
   useEffect(() => {
     if (editingField && inputRef.current) {
@@ -72,7 +74,7 @@ export function RoutineCard({
 
   return (
     <div
-      className={`routine-card-compact ${isComplete ? 'complete' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`routine-card-compact ${isComplete ? 'complete' : ''} ${completedToday ? 'completed-today' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={!editingField}
       onDragStart={(e) => onDragStart(e, routine.id)}
       onDragOver={(e) => onDragOver(e, routine.id)}
@@ -137,14 +139,13 @@ export function RoutineCard({
           </div>
         )}
         <button
-          className="compact-btn"
-          onClick={() => onDecrement(routine.id)}
-          disabled={routine.completedThisWeek === 0}
+          className={`routine-check-btn ${completedToday ? 'checked' : ''}`}
+          onClick={() => completedToday ? onDecrement(routine.id) : onIncrement(routine.id)}
+          title={completedToday ? 'Undo' : 'Mark done'}
         >
-          −
-        </button>
-        <button className="compact-btn primary" onClick={() => onIncrement(routine.id)}>
-          +
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="20 6 9 17 4 12"></polyline>
+          </svg>
         </button>
         <button className="compact-btn delete" onClick={() => onDelete(routine.id)}>
           ×
