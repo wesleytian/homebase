@@ -1043,12 +1043,11 @@ main {
 
 .subtask-edit-input {
   flex: 1;
-  font-size: inherit;
+  font-size: 0.8rem;
   font-family: inherit;
-  color: inherit;
+  color: #4a4540;
   background: transparent;
   border: none;
-  border-bottom: 1px solid #9b8cff;
   padding: 0;
   outline: none;
 }
