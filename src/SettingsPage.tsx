@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   AppSettings,
   Hobby,
@@ -76,6 +76,22 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
         city.toLowerCase().includes(citySearch.toLowerCase())
       ).slice(0, 8)
     : WORLD_CITIES.slice(0, 8);
+
+  // Escape key to go back
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        // Don't go back if in an input field
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT') {
+          return;
+        }
+        onBack();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onBack]);
 
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onSettingsChange({ ...settings, anthropicApiKey: e.target.value });

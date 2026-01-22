@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { JournalEntry } from './types';
 import { JournalEntryEditor } from './JournalEntryEditor';
 
@@ -10,6 +10,21 @@ interface Props {
 
 export function JournalPage({ entries, onBack, onSave }: Props) {
   const [editingEntry, setEditingEntry] = useState<{ entry: JournalEntry | null; date: string } | null>(null);
+
+  // Escape key to close editor or go back
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (editingEntry) {
+          setEditingEntry(null);
+        } else {
+          onBack();
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [editingEntry, onBack]);
 
   const formatDate = (dateStr: string) => {
     const d = new Date(dateStr + 'T00:00:00');

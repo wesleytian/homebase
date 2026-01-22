@@ -97,13 +97,25 @@ export function FriendsPage({
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setShowAddModal(false);
-        setShowAddSectionModal(false);
+        // Close modals first, then editing states, then go back
+        if (showAddModal) {
+          setShowAddModal(false);
+        } else if (showAddSectionModal) {
+          setShowAddSectionModal(false);
+        } else if (editingFriendId) {
+          setEditingFriendId(null);
+          setEditFriendName('');
+        } else if (editingSectionId) {
+          setEditingSectionId(null);
+          setEditSectionName('');
+        } else {
+          onBack();
+        }
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [showAddModal, showAddSectionModal, editingFriendId, editingSectionId, onBack]);
 
   // Friend drag handlers
   const handleFriendDragStart = (e: React.DragEvent, friendId: string) => {
