@@ -956,6 +956,7 @@ main {
   flex: 1;
   font-size: 0.8rem;
   color: #4a4540;
+  line-height: 1.4;
 }
 
 .subtask-delete {
@@ -1049,7 +1050,10 @@ main {
   background: transparent;
   border: none;
   padding: 0;
+  margin: 0;
   outline: none;
+  line-height: 1.4;
+  height: auto;
 }
 
 .subtask-add-form input::placeholder {
