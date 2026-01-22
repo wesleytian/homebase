@@ -13,6 +13,7 @@ interface Props {
   onEditTodo: (id: string, text: string) => void;
   onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string | null) => void;
+  onAddTodoAfter: (text: string, afterTodoId: string, indent?: number) => void;
   onMoveTodo: (id: string, newSectionId: string | null) => void;
   onReorderTodos: (todos: Todo[]) => void;
   onToggleSection: (id: string) => void;
@@ -31,6 +32,7 @@ interface DragState {
   targetId: string | null;
   targetType: DragType;
   position: DropPosition;
+  targetIndent: number;
 }
 
 const TODO_LIMIT = 12;
@@ -44,6 +46,7 @@ export function TodoList({
   onEditTodo,
   onIndentTodo,
   onAddTodo,
+  onAddTodoAfter,
   onMoveTodo,
   onReorderTodos,
   onToggleSection,
@@ -63,6 +66,7 @@ export function TodoList({
     targetId: null,
     targetType: null,
     position: null,
+    targetIndent: 0,
   });
   const dragRef = useRef<{ type: DragType; id: string } | null>(null);
 
@@ -74,7 +78,7 @@ export function TodoList({
     onReorder: onReorderTodos,
     onDragStateChange: (draggedId, targetId, position) => {
       if (draggedId) {
-        setDragState((s) => ({ ...s, type: 'todo', draggedId, targetId, targetType: 'todo', position }));
+        setDragState((s) => ({ ...s, type: 'todo', draggedId, targetId, targetType: 'todo', position, targetIndent: 0 }));
       } else {
         resetDragState();
       }
@@ -101,7 +105,7 @@ export function TodoList({
     e.dataTransfer.dropEffect = 'move';
 
     if (!dragRef.current || dragRef.current.id === targetId) {
-      setDragState((s) => ({ ...s, targetId: null, targetType: null, position: null }));
+      setDragState((s) => ({ ...s, targetId: null, targetType: null, position: null, targetIndent: 0 }));
       return;
     }
 
@@ -109,7 +113,15 @@ export function TodoList({
     const midY = rect.top + rect.height / 2;
     const position: DropPosition = e.clientY < midY ? 'above' : 'below';
 
-    setDragState((s) => ({ ...s, targetId, targetType: 'todo', position }));
+    // Calculate target indent based on horizontal position
+    // Get the container's left edge as baseline
+    const container = e.currentTarget.closest('.unsectioned-area, .section-content');
+    const containerLeft = container?.getBoundingClientRect().left ?? rect.left;
+    const relativeX = e.clientX - containerLeft;
+    // Each indent level is 24px, calculate target indent (0-3)
+    const targetIndent = Math.min(3, Math.max(0, Math.floor(relativeX / 40)));
+
+    setDragState((s) => ({ ...s, targetId, targetType: 'todo', position, targetIndent }));
   };
 
   const handleTodoDrop = (e: React.DragEvent, targetId: string) => {
@@ -133,8 +145,9 @@ export function TodoList({
     const newTodos = [...todos];
     const [dragged] = newTodos.splice(draggedIndex, 1);
 
-    // Update sectionId for the dragged todo
+    // Update sectionId and indent for the dragged todo
     dragged.sectionId = targetTodo.sectionId;
+    dragged.indent = dragState.targetIndent;
 
     let insertIndex = targetIndex;
     if (dragState.position === 'below') {
@@ -145,6 +158,11 @@ export function TodoList({
 
     newTodos.splice(insertIndex, 0, dragged);
     onReorderTodos(newTodos);
+
+    // Also update indent in DB
+    if (draggedTodo.indent !== dragState.targetIndent) {
+      onIndentTodo(draggedTodo.id, dragState.targetIndent);
+    }
 
     resetDragState();
   };
@@ -225,11 +243,11 @@ export function TodoList({
   };
 
   const handleDragLeave = () => {
-    setDragState((s) => ({ ...s, targetId: null, targetType: null, position: null }));
+    setDragState((s) => ({ ...s, targetId: null, targetType: null, position: null, targetIndent: 0 }));
   };
 
   const resetDragState = () => {
-    setDragState({ type: null, draggedId: null, targetId: null, targetType: null, position: null });
+    setDragState({ type: null, draggedId: null, targetId: null, targetType: null, position: null, targetIndent: 0 });
     setUnsectionedHover(false);
     dragRef.current = null;
   };
@@ -285,6 +303,19 @@ export function TodoList({
             onDelete={onDeleteTodo}
             onEdit={onEditTodo}
             onIndent={onIndentTodo}
+            onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
+            onDeleteAndFocusAbove={index > 0 ? (id) => {
+              const prevTodo = unsectionedTodos[index - 1];
+              onDeleteTodo(id);
+              // Focus the previous todo's input after a short delay
+              setTimeout(() => {
+                const prevInput = document.querySelector(`[data-drag-id="${prevTodo.id}"] .todo-text-input`) as HTMLInputElement;
+                if (prevInput) {
+                  prevInput.focus();
+                  prevInput.setSelectionRange(prevInput.value.length, prevInput.value.length);
+                }
+              }, 0);
+            } : undefined}
             canIndent={index > 0}
             confettiEnabled={confettiEnabled}
             onDragStart={handleTodoDragStart}
@@ -292,6 +323,7 @@ export function TodoList({
             onDragLeave={handleDragLeave}
             onDrop={handleTodoDrop}
             dropPosition={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.position : null}
+            dropIndent={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.targetIndent : null}
             isDragging={dragState.draggedId === todo.id}
             onTouchStart={touchDrag.handleTouchStart}
             onTouchMove={touchDrag.handleTouchMove}
@@ -314,6 +346,7 @@ export function TodoList({
           onEditTodo={onEditTodo}
           onIndentTodo={onIndentTodo}
           onAddTodo={onAddTodo}
+          onAddTodoAfter={onAddTodoAfter}
           onTodoDragStart={handleTodoDragStart}
           onTodoDragOver={handleTodoDragOver}
           onTodoDragLeave={handleDragLeave}

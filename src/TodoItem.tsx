@@ -10,6 +10,8 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (id: string, text: string) => void;
   onIndent: (id: string, indent: number) => void;
+  onCreateBelow?: (id: string, indent: number) => void;
+  onDeleteAndFocusAbove?: (id: string) => void;
   canIndent: boolean;
   confettiEnabled?: boolean;
   onDragStart: (e: React.DragEvent, id: string) => void;
@@ -17,6 +19,7 @@ interface Props {
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent, id: string) => void;
   dropPosition: DropPosition;
+  dropIndent: number | null;
   isDragging: boolean;
   onTouchStart?: (e: React.TouchEvent, id: string) => void;
   onTouchMove?: (e: React.TouchEvent) => void;
@@ -29,6 +32,8 @@ export function TodoItem({
   onDelete,
   onEdit,
   onIndent,
+  onCreateBelow,
+  onDeleteAndFocusAbove,
   canIndent,
   confettiEnabled = false,
   onDragStart,
@@ -36,42 +41,71 @@ export function TodoItem({
   onDragLeave,
   onDrop,
   dropPosition,
+  dropIndent,
   isDragging,
   onTouchStart,
   onTouchMove,
   onTouchEnd,
 }: Props) {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editText, setEditText] = useState(todo.text);
+  const [localText, setLocalText] = useState(todo.text);
   const [showConfetti, setShowConfetti] = useState<{ x: number; y: number } | null>(null);
   const [celebrating, setCelebrating] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const checkboxRef = useRef<HTMLLabelElement>(null);
   const indent = todo.indent ?? 0;
 
+  // Sync local text with todo.text when it changes externally
   useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
+    if (!isFocused) {
+      setLocalText(todo.text);
     }
-  }, [isEditing]);
+  }, [todo.text, isFocused]);
 
-  const handleSave = () => {
-    const trimmed = editText.trim();
+  // Auto-resize textarea
+  const autoResize = () => {
+    if (inputRef.current) {
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
+    }
+  };
+
+  useEffect(() => {
+    autoResize();
+  }, [localText]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setLocalText(e.target.value);
+  };
+
+  const handleBlur = () => {
+    setIsFocused(false);
+    const trimmed = localText.trim();
     if (trimmed && trimmed !== todo.text) {
       onEdit(todo.id, trimmed);
     } else {
-      setEditText(todo.text);
+      setLocalText(todo.text);
     }
-    setIsEditing(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      handleSave();
+      e.preventDefault();
+      // Save current text first
+      const trimmed = localText.trim();
+      if (trimmed && trimmed !== todo.text) {
+        onEdit(todo.id, trimmed);
+      }
+      // Create new todo below with same indent level
+      if (onCreateBelow) {
+        onCreateBelow(todo.id, indent);
+      }
+    } else if (e.key === 'Backspace' && localText === '' && onDeleteAndFocusAbove) {
+      e.preventDefault();
+      onDeleteAndFocusAbove(todo.id);
     } else if (e.key === 'Escape') {
-      setEditText(todo.text);
-      setIsEditing(false);
+      setLocalText(todo.text);
+      inputRef.current?.blur();
     } else if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -109,10 +143,13 @@ export function TodoItem({
         />
       )}
     <div
-      className={`todo-item ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${isEditing ? 'editing' : ''}`}
-      style={{ marginLeft: `${indent * 24}px` }}
+      className={`todo-item ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      style={{
+        marginLeft: `${indent * 24}px`,
+        '--drop-indent-offset': dropIndent !== null ? `${(dropIndent - indent) * 24}px` : '0px'
+      } as React.CSSProperties}
       data-drag-id={todo.id}
-      draggable={!isEditing}
+      draggable={!isFocused}
       onDragStart={(e) => onDragStart(e, todo.id)}
       onDragOver={(e) => onDragOver(e, todo.id)}
       onDragLeave={onDragLeave}
@@ -130,21 +167,16 @@ export function TodoItem({
         />
         <span className="checkmark"></span>
       </label>
-      {isEditing ? (
-        <input
-          ref={inputRef}
-          type="text"
-          className="todo-edit-input"
-          value={editText}
-          onChange={(e) => setEditText(e.target.value)}
-          onBlur={handleSave}
-          onKeyDown={handleKeyDown}
-        />
-      ) : (
-        <span className="todo-text" onClick={() => setIsEditing(true)}>
-          {todo.text}
-        </span>
-      )}
+      <textarea
+        ref={inputRef}
+        className={`todo-text-input ${todo.completed ? 'completed' : ''}`}
+        value={localText}
+        onChange={handleChange}
+        onFocus={() => setIsFocused(true)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        rows={1}
+      />
       <button className="todo-delete" onClick={() => onDelete(todo.id)}>×</button>
     </div>
     </>

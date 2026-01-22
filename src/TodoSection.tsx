@@ -26,6 +26,7 @@ interface DragState {
   targetId: string | null;
   targetType: DragType;
   position: DropPosition;
+  targetIndent: number;
 }
 
 interface Props {
@@ -40,6 +41,7 @@ interface Props {
   onEditTodo: (id: string, text: string) => void;
   onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string) => void;
+  onAddTodoAfter: (text: string, afterTodoId: string, indent?: number) => void;
   onTodoDragStart: (e: React.DragEvent, id: string) => void;
   onTodoDragOver: (e: React.DragEvent, id: string) => void;
   onTodoDragLeave: () => void;
@@ -67,6 +69,7 @@ export function TodoSection({
   onEditTodo,
   onIndentTodo,
   onAddTodo,
+  onAddTodoAfter,
   onTodoDragStart,
   onTodoDragOver,
   onTodoDragLeave,
@@ -87,6 +90,7 @@ export function TodoSection({
   const [editValue, setEditValue] = useState(section.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const deleteConfirmRef = useRef<HTMLDivElement>(null);
+  const wasDraggingRef = useRef(false);
 
   useEffect(() => {
     if (showDeleteConfirm) {
@@ -133,12 +137,19 @@ export function TodoSection({
         draggable
         onDragStart={(e) => {
           e.stopPropagation();
+          wasDraggingRef.current = true;
           onSectionDragStart(e, section.id);
+        }}
+        onDragEnd={() => {
+          // Reset after a short delay to allow click event to be blocked first
+          setTimeout(() => {
+            wasDraggingRef.current = false;
+          }, 100);
         }}
         onDragOver={(e) => {
           e.preventDefault();
-          e.stopPropagation();
           if (dragState.type === 'todo') {
+            e.stopPropagation();
             e.dataTransfer.dropEffect = 'move';
             setTodoHovering(true);
           }
@@ -149,13 +160,20 @@ export function TodoSection({
         onDrop={(e) => {
           e.stopPropagation();
           setTodoHovering(false);
+          wasDraggingRef.current = true; // Prevent click from firing toggle
           if (dragState.type === 'todo') {
             onDropOnSection(e, section.id);
           } else {
             onSectionDrop(e, section.id);
           }
         }}
-        onClick={() => onToggleSection(section.id)}
+        onClick={() => {
+          if (wasDraggingRef.current) {
+            wasDraggingRef.current = false;
+            return;
+          }
+          onToggleSection(section.id);
+        }}
       >
         <span className="section-drag-handle">⋮⋮</span>
         <span className={`section-arrow ${section.collapsed ? '' : 'open'}`}>▶</span>
@@ -235,6 +253,19 @@ export function TodoSection({
               onDelete={onDeleteTodo}
               onEdit={onEditTodo}
               onIndent={onIndentTodo}
+              onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
+              onDeleteAndFocusAbove={index > 0 ? (id) => {
+                const prevTodo = todos[index - 1];
+                onDeleteTodo(id);
+                // Focus the previous todo's input after a short delay
+                setTimeout(() => {
+                  const prevInput = document.querySelector(`[data-drag-id="${prevTodo.id}"] .todo-text-input`) as HTMLInputElement;
+                  if (prevInput) {
+                    prevInput.focus();
+                    prevInput.setSelectionRange(prevInput.value.length, prevInput.value.length);
+                  }
+                }, 0);
+              } : undefined}
               canIndent={index > 0}
               confettiEnabled={confettiEnabled}
               onDragStart={onTodoDragStart}
@@ -242,6 +273,7 @@ export function TodoSection({
               onDragLeave={onTodoDragLeave}
               onDrop={onTodoDrop}
               dropPosition={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.position : null}
+              dropIndent={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.targetIndent : null}
               isDragging={dragState.draggedId === todo.id}
               onTouchStart={onTodoTouchStart}
               onTouchMove={onTodoTouchMove}
