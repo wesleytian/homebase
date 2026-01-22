@@ -16,6 +16,7 @@ export interface Completion {
 
 export interface RoutineWithProgress extends Routine {
   completedThisWeek: number;
+  completedToday: boolean;
 }
 
 export interface Todo {
@@ -37,10 +38,17 @@ export interface ToggleSection {
   createdAt: number;
 }
 
+export interface GoalSubtask {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
 export interface Goal {
   id: string;
   title: string;
   description: string;
+  subtasks: GoalSubtask[];
   order: number;
   createdAt: number;
 }

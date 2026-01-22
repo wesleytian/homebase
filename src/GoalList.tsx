@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react';
-import { Goal } from './types';
+import { Goal, GoalSubtask } from './types';
 import { GoalCard, DropPosition } from './GoalCard';
 
 interface Props {
   goals: Goal[];
   onDelete: (id: string) => void;
-  onEdit: (id: string, updates: { title?: string; description?: string }) => void;
+  onEdit: (id: string, updates: { title?: string; description?: string; subtasks?: GoalSubtask[] }) => void;
   onReorder: (goals: Goal[]) => void;
   onAdd: (title: string) => void;
 }
