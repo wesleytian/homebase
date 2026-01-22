@@ -831,8 +831,9 @@ export default function App() {
 
   // Friends handlers
   const handleAddFriend = async (name: string, tier: FriendTier = 3) => {
-    await addFriend(name, tier);
+    const friend = await addFriend(name, tier);
     loadData();
+    return friend;
   };
 
   const handleDeleteFriend = async (id: string) => {
@@ -967,6 +968,7 @@ export default function App() {
           onEditFriend={handleEditFriend}
           onDeleteFriend={handleDeleteFriend}
           onSectionsChange={handleFriendsSectionsChange}
+          pushUndo={pushUndo}
         />
         {aiChatComponent}
       </div>

@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { Friend, FriendTier } from './types';
+import { UndoAction } from './useUndo';
 
 export interface FriendSection {
   id: string;
@@ -17,10 +18,11 @@ interface Props {
   friends: Friend[];
   sections: FriendSection[];
   onBack: () => void;
-  onAddFriend: (name: string, tier: FriendTier) => void;
+  onAddFriend: (name: string, tier: FriendTier) => Promise<Friend | void>;
   onEditFriend: (id: string, updates: Partial<Friend>) => void;
   onDeleteFriend: (id: string) => void;
   onSectionsChange: (sections: FriendSection[]) => void;
+  pushUndo?: (action: UndoAction) => void;
 }
 
 type DragType = 'friend' | 'section' | null;
@@ -41,6 +43,7 @@ export function FriendsPage({
   onEditFriend,
   onDeleteFriend,
   onSectionsChange,
+  pushUndo,
 }: Props) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [newName, setNewName] = useState('');
@@ -63,12 +66,24 @@ export function FriendsPage({
     return friends.filter(f => f.tier === section.tier);
   };
 
-  const handleAddFriend = (e: React.FormEvent) => {
+  const handleAddFriend = async (e: React.FormEvent) => {
     e.preventDefault();
     if (newName.trim()) {
       const section = sections.find(s => s.id === addingToSectionId);
       const tier = (section?.tier || 1) as FriendTier;
-      onAddFriend(newName.trim(), tier);
+      const name = newName.trim();
+      const result = await onAddFriend(name, tier);
+
+      // Push undo action if we got a friend back and have pushUndo
+      if (pushUndo && result && 'id' in result) {
+        const friendId = result.id;
+        pushUndo({
+          type: 'add-friend',
+          description: `Add friend "${name}"`,
+          undo: () => onDeleteFriend(friendId),
+        });
+      }
+
       setNewName('');
       setShowAddModal(false);
     }
@@ -199,7 +214,29 @@ export function FriendsPage({
     const currentIdx = sections.findIndex(s => s.tier === friend.tier);
     const targetIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
     if (targetIdx >= 0 && targetIdx < sections.length) {
-      onEditFriend(friend.id, { tier: sections[targetIdx].tier as FriendTier });
+      const oldTier = friend.tier;
+      const newTier = sections[targetIdx].tier as FriendTier;
+      onEditFriend(friend.id, { tier: newTier });
+
+      if (pushUndo) {
+        pushUndo({
+          type: 'move-friend',
+          description: `Move "${friend.name}" ${direction}`,
+          undo: () => onEditFriend(friend.id, { tier: oldTier }),
+        });
+      }
+    }
+  };
+
+  const handleDeleteFriend = (friend: Friend) => {
+    onDeleteFriend(friend.id);
+
+    if (pushUndo) {
+      pushUndo({
+        type: 'delete-friend',
+        description: `Delete "${friend.name}"`,
+        undo: () => onAddFriend(friend.name, friend.tier),
+      });
     }
   };
 
@@ -253,11 +290,19 @@ export function FriendsPage({
   const handleAddSection = (e: React.FormEvent) => {
     e.preventDefault();
     if (newSectionName.trim()) {
-      const maxTier = Math.max(...sections.map(s => s.tier), 0);
+      // Find a tier that no section AND no friend currently uses
+      const usedTiers = new Set([
+        ...sections.map(s => s.tier),
+        ...friends.map(f => f.tier),
+      ]);
+      let newTier = 1;
+      while (usedTiers.has(newTier)) {
+        newTier++;
+      }
       const newSection: FriendSection = {
         id: `section-${Date.now()}`,
         name: newSectionName.trim(),
-        tier: maxTier + 1,
+        tier: newTier,
       };
       onSectionsChange([...sections, newSection]);
       setNewSectionName('');
@@ -330,7 +375,7 @@ export function FriendsPage({
           )}
           <button
             className="friend-pill-delete"
-            onClick={() => onDeleteFriend(friend.id)}
+            onClick={() => handleDeleteFriend(friend)}
           >×</button>
         </div>
       </div>
