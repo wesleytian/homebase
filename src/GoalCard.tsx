@@ -115,10 +115,14 @@ export function GoalCard({
     if (!editingSubtaskId) return;
     const trimmed = editingSubtaskText.trim();
     if (trimmed) {
-      const updatedSubtasks = (goal.subtasks || []).map((st) =>
+      const currentSubtasks = goal.subtasks || [];
+      const updatedSubtasks = currentSubtasks.map((st) =>
         st.id === editingSubtaskId ? { ...st, text: trimmed } : st
       );
-      onEdit(goal.id, { subtasks: updatedSubtasks });
+      // Safety check: don't save if we'd lose subtasks
+      if (updatedSubtasks.length >= currentSubtasks.length) {
+        onEdit(goal.id, { subtasks: updatedSubtasks });
+      }
     }
     setEditingSubtaskId(null);
     setEditingSubtaskText('');
@@ -170,13 +174,19 @@ export function GoalCard({
     e.preventDefault();
     e.stopPropagation();
 
-    if (!draggedSubtaskRef.current || draggedSubtaskRef.current === targetSubtaskId) return;
+    if (!draggedSubtaskRef.current || draggedSubtaskRef.current === targetSubtaskId) {
+      resetSubtaskDragState();
+      return;
+    }
 
     const subtasksList = goal.subtasks || [];
     const draggedIndex = subtasksList.findIndex((st) => st.id === draggedSubtaskRef.current);
     const targetIndex = subtasksList.findIndex((st) => st.id === targetSubtaskId);
 
-    if (draggedIndex === -1 || targetIndex === -1) return;
+    if (draggedIndex === -1 || targetIndex === -1) {
+      resetSubtaskDragState();
+      return;
+    }
 
     const newSubtasks = [...subtasksList];
     const [dragged] = newSubtasks.splice(draggedIndex, 1);
@@ -189,7 +199,11 @@ export function GoalCard({
     }
 
     newSubtasks.splice(insertIndex, 0, dragged);
-    onEdit(goal.id, { subtasks: newSubtasks });
+
+    // Safety check: don't save if we'd lose subtasks
+    if (newSubtasks.length === subtasksList.length) {
+      onEdit(goal.id, { subtasks: newSubtasks });
+    }
 
     resetSubtaskDragState();
   };
