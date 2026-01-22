@@ -10,12 +10,16 @@ export function FinancesCard({ content, onSave, isReviewTime }: Props) {
   const [value, setValue] = useState(content);
   const [isCollapsed, setIsCollapsed] = useState(!isReviewTime);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isFocused, setIsFocused] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Only sync from props when not focused (to avoid cursor jumping while typing)
   useEffect(() => {
-    setValue(content);
-  }, [content]);
+    if (!isFocused) {
+      setValue(content);
+    }
+  }, [content, isFocused]);
 
   useEffect(() => {
     // Auto-expand on first weekend of month
@@ -74,6 +78,8 @@ export function FinancesCard({ content, onSave, isReviewTime }: Props) {
             ref={textareaRef}
             value={value}
             onChange={handleChange}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             placeholder="Track your finances, budget notes, investment updates..."
             className="finances-textarea"
           />

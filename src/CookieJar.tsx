@@ -9,13 +9,17 @@ export function CookieJar({ content, onSave }: Props) {
   const [showModal, setShowModal] = useState(false);
   const [value, setValue] = useState(content);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [isFocused, setIsFocused] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
   const savedTimeoutRef = useRef<number | null>(null);
 
+  // Only sync from props when not focused (to avoid cursor jumping while typing)
   useEffect(() => {
-    setValue(content);
-  }, [content]);
+    if (!isFocused) {
+      setValue(content);
+    }
+  }, [content, isFocused]);
 
   // Auto-resize textarea in modal (only grow, don't shrink while typing)
   useEffect(() => {
@@ -109,6 +113,8 @@ export function CookieJar({ content, onSave }: Props) {
               className="cookie-jar-textarea"
               value={value}
               onChange={handleChange}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
               placeholder="- Shipped the new feature&#10;- Got positive feedback from the client&#10;- Ran my first 5K..."
             />
             <div className="cookie-jar-modal-footer">

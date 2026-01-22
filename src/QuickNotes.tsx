@@ -8,12 +8,16 @@ interface Props {
 export function QuickNotes({ content, onSave }: Props) {
   const [value, setValue] = useState(content);
   const [isSaving, setIsSaving] = useState(false);
+  const [isFocused, setIsFocused] = useState(false);
   const saveTimeoutRef = useRef<number | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Only sync from props when not focused (to avoid cursor jumping while typing)
   useEffect(() => {
-    setValue(content);
-  }, [content]);
+    if (!isFocused) {
+      setValue(content);
+    }
+  }, [content, isFocused]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -45,6 +49,8 @@ export function QuickNotes({ content, onSave }: Props) {
         ref={textareaRef}
         value={value}
         onChange={(e) => handleChange(e.target.value)}
+        onFocus={() => setIsFocused(true)}
+        onBlur={() => setIsFocused(false)}
         placeholder="Jot down quick thoughts, ideas, or tasks to organize later..."
         className="quick-notes-textarea"
       />
