@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUndo } from './useUndo';
 import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
 import {
@@ -7,6 +7,8 @@ import {
   updateRoutine,
   deleteRoutine,
   reorderRoutines,
+  updateRoutineStreak,
+  backfillStreaks,
   getCompletionsForWeek,
   addCompletion,
   removeLastCompletion,
@@ -199,7 +201,7 @@ export default function App() {
   });
   const [loading, setLoading] = useState(true);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
-  const weekStart = getWeekStart();
+  const [weekStart, setWeekStart] = useState(() => getWeekStart());
 
   // Hash-based routing for browser back/forward support
   const getPageFromHash = useCallback((): 'dashboard' | 'journal' | 'friends' | 'settings' => {
@@ -257,6 +259,11 @@ export default function App() {
     today.setHours(0, 0, 0, 0);
     const todayStart = today.getTime();
 
+    // Get yesterday's date string for streak-at-risk calculation
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
     for (const c of completions) {
       completionCounts.set(c.routineId, (completionCounts.get(c.routineId) || 0) + 1);
       // Check if this completion happened today
@@ -265,11 +272,17 @@ export default function App() {
       }
     }
 
-    const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => ({
-      ...r,
-      completedThisWeek: completionCounts.get(r.id) || 0,
-      completedToday: completedTodaySet.has(r.id),
-    }));
+    const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => {
+      const completedToday = completedTodaySet.has(r.id);
+      // Streak is at risk if: has a streak, not completed today, and last streak date was yesterday
+      const streakAtRisk = r.currentStreak > 0 && !completedToday && r.lastStreakDate === yesterdayStr;
+      return {
+        ...r,
+        completedThisWeek: completionCounts.get(r.id) || 0,
+        completedToday,
+        streakAtRisk,
+      };
+    });
 
     setRoutines(routinesWithProgress);
     setTodos(allTodos);
@@ -299,13 +312,50 @@ export default function App() {
     loadData();
   }, [loadData]);
 
-  // Update current hour every minute to check for 10pm
+  // Track the last known date to detect day changes
+  const lastDateRef = useRef(new Date().toDateString());
+
+  // Check for day/week change and reload data if needed
+  const checkAndReloadIfNewDay = useCallback(() => {
+    const now = new Date();
+    const currentDate = now.toDateString();
+
+    if (currentDate !== lastDateRef.current) {
+      console.log('Day changed, reloading data...');
+      lastDateRef.current = currentDate;
+
+      // Check if week also changed - update weekStart state
+      const newWeekStart = getWeekStart(now);
+      if (newWeekStart !== weekStart) {
+        setWeekStart(newWeekStart);
+      }
+
+      // Reload data for the new day
+      loadData();
+    }
+  }, [loadData, weekStart]);
+
+  // Update current hour every minute and check for day change
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentHour(new Date().getHours());
-    }, 60000);
+      checkAndReloadIfNewDay();
+    }, 60000); // Check every minute
+
     return () => clearInterval(interval);
-  }, []);
+  }, [checkAndReloadIfNewDay]);
+
+  // Also check when the tab becomes visible again (user returns after leaving tab open)
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkAndReloadIfNewDay();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [checkAndReloadIfNewDay]);
 
   // Helper to track save status
   const withSaveStatus = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
@@ -344,40 +394,131 @@ export default function App() {
     loadData();
   };
 
-  const handleIncrement = async (id: string) => {
+  const handleIncrement = (id: string) => {
     const routine = routines.find((r) => r.id === id);
-    await addCompletion(id);
-    loadData();
+    if (!routine) return;
+
+    // Calculate new streak values
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    let newStreak = routine.currentStreak;
+    let newLongest = routine.longestStreak;
+    let newLastStreakDate = routine.lastStreakDate;
+
+    // Update streak if this is the first completion today
+    if (!routine.completedToday) {
+      if (routine.lastStreakDate === todayStr) {
+        newStreak = routine.currentStreak;
+      } else if (routine.lastStreakDate === yesterdayStr) {
+        newStreak = routine.currentStreak + 1;
+      } else {
+        newStreak = 1;
+      }
+      newLongest = Math.max(newStreak, routine.longestStreak);
+      newLastStreakDate = todayStr;
+    }
+
+    // Optimistic update - update state immediately
+    setRoutines((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              completedThisWeek: r.completedThisWeek + 1,
+              completedToday: true,
+              currentStreak: newStreak,
+              longestStreak: newLongest,
+              lastStreakDate: newLastStreakDate,
+              streakAtRisk: false,
+            }
+          : r
+      )
+    );
 
     // Push undo action
-    if (routine) {
-      pushUndo({
-        type: 'increment-routine',
-        description: `Complete "${routine.name}"`,
-        undo: async () => {
-          await removeLastCompletion(id, weekStart);
-          loadData();
-        },
-      });
+    pushUndo({
+      type: 'increment-routine',
+      description: `Complete "${routine.name}"`,
+      undo: () => {
+        // Restore previous state optimistically
+        setRoutines((prev) =>
+          prev.map((r) =>
+            r.id === id
+              ? {
+                  ...r,
+                  completedThisWeek: routine.completedThisWeek,
+                  completedToday: routine.completedToday,
+                  currentStreak: routine.currentStreak,
+                  longestStreak: routine.longestStreak,
+                  lastStreakDate: routine.lastStreakDate,
+                  streakAtRisk: routine.streakAtRisk,
+                }
+              : r
+          )
+        );
+        // Sync to DB in background
+        removeLastCompletion(id, weekStart).catch(console.error);
+      },
+    });
+
+    // Sync to DB in background
+    addCompletion(id).catch(console.error);
+    if (!routine.completedToday) {
+      updateRoutineStreak(id, newStreak, newLongest, newLastStreakDate).catch(console.error);
     }
   };
 
-  const handleDecrement = async (id: string) => {
+  const handleDecrement = (id: string) => {
     const routine = routines.find((r) => r.id === id);
-    await removeLastCompletion(id, weekStart);
-    loadData();
+    if (!routine || routine.completedThisWeek <= 0) return;
+
+    // Calculate if we're removing today's only completion
+    const wasCompletedToday = routine.completedToday;
+
+    // Optimistic update - update state immediately
+    setRoutines((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? {
+              ...r,
+              completedThisWeek: Math.max(0, r.completedThisWeek - 1),
+              // Only mark as not completed today if this was the only completion today
+              // (simplification: we assume one completion per day for daily tracking)
+              completedToday: wasCompletedToday ? false : r.completedToday,
+            }
+          : r
+      )
+    );
 
     // Push undo action
-    if (routine) {
-      pushUndo({
-        type: 'decrement-routine',
-        description: `Undo "${routine.name}"`,
-        undo: async () => {
-          await addCompletion(id);
-          loadData();
-        },
-      });
-    }
+    pushUndo({
+      type: 'decrement-routine',
+      description: `Undo "${routine.name}"`,
+      undo: () => {
+        // Restore previous state optimistically
+        setRoutines((prev) =>
+          prev.map((r) =>
+            r.id === id
+              ? {
+                  ...r,
+                  completedThisWeek: routine.completedThisWeek,
+                  completedToday: routine.completedToday,
+                }
+              : r
+          )
+        );
+        // Sync to DB in background
+        addCompletion(id).catch(console.error);
+      },
+    });
+
+    // Sync to DB in background
+    removeLastCompletion(id, weekStart).catch(console.error);
   };
 
   const handleDeleteRoutine = async (id: string) => {
@@ -489,9 +630,19 @@ export default function App() {
       const wasFocused = document.activeElement === tempInput;
       const cursorPos = tempInput?.selectionStart ?? 0;
 
-      // Simply replace temp ID with real todo, keeping same position
+      // Replace temp ID with real todo, preserving any local changes (order, indent, text)
       setTodos(current => {
-        const updated = current.map(t => t.id === tempId ? { ...dbTodo, order: t.order } : t);
+        const tempTodo = current.find(t => t.id === tempId);
+        const updated = current.map(t => t.id === tempId ? {
+          ...dbTodo,
+          order: t.order,
+          indent: t.indent,  // Preserve local indent changes
+          text: t.text,      // Preserve local text changes
+        } : t);
+        // Sync local changes to DB if they differ
+        if (tempTodo && (tempTodo.indent !== dbTodo.indent || tempTodo.text !== dbTodo.text)) {
+          updateTodo({ ...dbTodo, indent: tempTodo.indent, text: tempTodo.text }).catch(console.error);
+        }
         // Reorder in background to persist positions
         reorderTodos(updated).catch(console.error);
         return updated;
@@ -709,26 +860,47 @@ export default function App() {
 
     // Find or create today's section
     let todaySection = sections.find((s) => s.name === todayFormatted);
-    if (!todaySection) {
+    let needsNewSection = !todaySection;
+
+    if (needsNewSection) {
+      // Create section in DB first since we need the real ID
       todaySection = await addSection(todayFormatted);
+      // Add to state at the top
+      setSections((prev) => [todaySection!, ...prev]);
     }
 
-    // Move all unfinished todos from source section to today's section
+    // Get todos to move
     const todosToMove = todos.filter(
       (t) => t.sectionId === sourceSectionId && !t.completed
     );
 
-    for (const todo of todosToMove) {
-      await updateTodo({ ...todo, sectionId: todaySection.id });
-    }
+    if (todosToMove.length === 0) return;
 
-    // Collapse the source section
-    const sourceSection = sections.find((s) => s.id === sourceSectionId);
-    if (sourceSection) {
-      await updateSection({ ...sourceSection, collapsed: true });
-    }
+    // Optimistic update - move todos and collapse source section immediately
+    setTodos((prev) =>
+      prev.map((t) =>
+        t.sectionId === sourceSectionId && !t.completed
+          ? { ...t, sectionId: todaySection!.id }
+          : t
+      )
+    );
 
-    loadData();
+    setSections((prev) =>
+      prev.map((s) =>
+        s.id === sourceSectionId ? { ...s, collapsed: true } : s
+      )
+    );
+
+    // Sync to DB in background (batch the updates)
+    Promise.all([
+      ...todosToMove.map((todo) =>
+        updateTodo({ ...todo, sectionId: todaySection!.id })
+      ),
+      updateSection({
+        ...sections.find((s) => s.id === sourceSectionId)!,
+        collapsed: true,
+      }),
+    ]).catch(console.error);
   };
 
   // Life Goal handlers
@@ -814,8 +986,9 @@ export default function App() {
 
   // Journal handlers
   const handleSaveJournalEntry = async (entry: Partial<JournalEntry> & { date: string }) => {
+    // Just save to DB - don't update parent state or call loadData()
+    // The JournalEntryEditor manages its own local state to avoid race conditions
     await createOrUpdateJournalEntry(entry);
-    loadData();
   };
 
   // Reading notes handlers
@@ -982,6 +1155,10 @@ export default function App() {
           settings={settings}
           onSettingsChange={handleSettingsChange}
           onSortCompletedToBottom={handleSortCompletedToBottom}
+          onBackfillStreaks={async () => {
+            await backfillStreaks();
+            loadData();
+          }}
           onBack={() => setCurrentPage('dashboard')}
         />
         {aiChatComponent}
@@ -1095,6 +1272,7 @@ export default function App() {
                 onAddSection={handleAddSection}
                 onReorderSections={handleReorderSections}
                 onMoveToToday={handleMoveToToday}
+                pushUndo={pushUndo}
               />
             )}
           </section>
@@ -1155,6 +1333,7 @@ export default function App() {
                   onDelete={handleDeleteRoutine}
                   onEdit={handleEditRoutine}
                   onReorder={handleReorderRoutines}
+                  confettiEnabled={settings.confettiEnabled}
                 />
               </>
             )}

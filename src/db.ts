@@ -29,10 +29,19 @@ export async function getAllRoutines(): Promise<Routine[]> {
     .select('*')
     .order('order', { ascending: true });
   if (error) throw error;
-  return (data || []).map((r) => toCamel<Routine>(r));
+  return (data || []).map((r) => {
+    const routine = toCamel<Routine>(r);
+    // Provide defaults for streak fields (for backwards compatibility)
+    return {
+      ...routine,
+      currentStreak: routine.currentStreak ?? 0,
+      longestStreak: routine.longestStreak ?? 0,
+      lastStreakDate: routine.lastStreakDate ?? null,
+    };
+  });
 }
 
-export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'createdAt'>): Promise<Routine> {
+export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'createdAt' | 'currentStreak' | 'longestStreak' | 'lastStreakDate'>): Promise<Routine> {
   const { data: existing } = await supabase.from('routines').select('order').order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
@@ -44,6 +53,9 @@ export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'create
       metadata: routine.metadata,
       order: maxOrder + 1,
       created_at: Date.now(),
+      current_streak: 0,
+      longest_streak: 0,
+      last_streak_date: null,
     })
     .select()
     .single();
@@ -61,6 +73,23 @@ export async function updateRoutine(routine: Routine): Promise<void> {
       order: routine.order,
     })
     .eq('id', routine.id);
+  if (error) throw error;
+}
+
+export async function updateRoutineStreak(
+  routineId: string,
+  currentStreak: number,
+  longestStreak: number,
+  lastStreakDate: string | null
+): Promise<void> {
+  const { error } = await supabase
+    .from('routines')
+    .update({
+      current_streak: currentStreak,
+      longest_streak: longestStreak,
+      last_streak_date: lastStreakDate,
+    })
+    .eq('id', routineId);
   if (error) throw error;
 }
 
@@ -83,6 +112,96 @@ export async function getCompletionsForWeek(weekStart: number): Promise<Completi
     .eq('week_start', weekStart);
   if (error) throw error;
   return (data || []).map((c) => toCamel<Completion>(c));
+}
+
+export async function getAllCompletions(): Promise<Completion[]> {
+  const { data, error } = await supabase
+    .from('completions')
+    .select('*')
+    .order('completed_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((c) => toCamel<Completion>(c));
+}
+
+// Backfill streaks from historical completion data
+export async function backfillStreaks(): Promise<void> {
+  const [routines, completions] = await Promise.all([
+    getAllRoutines(),
+    getAllCompletions(),
+  ]);
+
+  // Group completions by routine
+  const completionsByRoutine = new Map<string, number[]>();
+  for (const c of completions) {
+    if (!completionsByRoutine.has(c.routineId)) {
+      completionsByRoutine.set(c.routineId, []);
+    }
+    completionsByRoutine.get(c.routineId)!.push(c.completedAt);
+  }
+
+  // Calculate streaks for each routine
+  for (const routine of routines) {
+    const timestamps = completionsByRoutine.get(routine.id) || [];
+    if (timestamps.length === 0) continue;
+
+    // Convert timestamps to unique dates (YYYY-MM-DD)
+    const dates = new Set<string>();
+    for (const ts of timestamps) {
+      const d = new Date(ts);
+      dates.add(d.toISOString().split('T')[0]);
+    }
+
+    // Sort dates
+    const sortedDates = Array.from(dates).sort();
+
+    // Calculate current streak (working backwards from today)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split('T')[0];
+
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    let currentStreak = 0;
+    let lastStreakDate: string | null = null;
+
+    // Check if completed today or yesterday to start counting
+    if (dates.has(todayStr) || dates.has(yesterdayStr)) {
+      // Start from the most recent completion and count backwards
+      const startDate = dates.has(todayStr) ? todayStr : yesterdayStr;
+      lastStreakDate = startDate;
+      currentStreak = 1;
+
+      let checkDate = new Date(startDate);
+      checkDate.setDate(checkDate.getDate() - 1);
+
+      while (dates.has(checkDate.toISOString().split('T')[0])) {
+        currentStreak++;
+        checkDate.setDate(checkDate.getDate() - 1);
+      }
+    }
+
+    // Calculate longest streak ever
+    let longestStreak = currentStreak;
+    let tempStreak = 1;
+
+    for (let i = 1; i < sortedDates.length; i++) {
+      const prevDate = new Date(sortedDates[i - 1]);
+      const currDate = new Date(sortedDates[i]);
+      const diffDays = Math.round((currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
+
+      if (diffDays === 1) {
+        tempStreak++;
+        longestStreak = Math.max(longestStreak, tempStreak);
+      } else {
+        tempStreak = 1;
+      }
+    }
+
+    // Update the routine
+    await updateRoutineStreak(routine.id, currentStreak, longestStreak, lastStreakDate);
+  }
 }
 
 export async function addCompletion(routineId: string): Promise<Completion> {

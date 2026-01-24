@@ -21,6 +21,8 @@ interface Props {
   dropPosition: DropPosition;
   dropIndent: number | null;
   isDragging: boolean;
+  isSelected?: boolean;
+  onSelect?: (id: string, e: React.MouseEvent) => void;
   onTouchStart?: (e: React.TouchEvent, id: string) => void;
   onTouchMove?: (e: React.TouchEvent) => void;
   onTouchEnd?: () => void;
@@ -43,6 +45,8 @@ export function TodoItem({
   dropPosition,
   dropIndent,
   isDragging,
+  isSelected = false,
+  onSelect,
   onTouchStart,
   onTouchMove,
   onTouchEnd,
@@ -143,7 +147,7 @@ export function TodoItem({
         />
       )}
     <div
-      className={`todo-item ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      className={`todo-item ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${isSelected ? 'selected' : ''}`}
       style={{
         marginLeft: `${indent * 24}px`,
         '--drop-indent-offset': dropIndent !== null ? `${(dropIndent - indent) * 24}px` : '0px'
@@ -154,11 +158,24 @@ export function TodoItem({
       onDragOver={(e) => onDragOver(e, todo.id)}
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, todo.id)}
+      onClick={(e) => {
+        // Only handle selection if shift/cmd/ctrl is held, to avoid interfering with normal clicks
+        if ((e.shiftKey || e.metaKey || e.ctrlKey) && onSelect) {
+          e.preventDefault();
+          onSelect(todo.id, e);
+        }
+      }}
       onTouchStart={onTouchStart ? (e) => onTouchStart(e, todo.id) : undefined}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <span className="drag-handle">⋮⋮</span>
+      <span
+        className="drag-handle"
+        onClick={(e) => {
+          e.stopPropagation();
+          if (onSelect) onSelect(todo.id, e);
+        }}
+      >⋮⋮</span>
       <label ref={checkboxRef} className={`todo-checkbox ${celebrating ? 'celebrating' : ''}`}>
         <input
           type="checkbox"

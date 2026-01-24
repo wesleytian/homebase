@@ -1,8 +1,9 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Todo, ToggleSection } from './types';
 import { TodoItem, DropPosition } from './TodoItem';
 import { TodoSection } from './TodoSection';
 import { useTouchDrag } from './useTouchDrag';
+import { UndoAction } from './useUndo';
 
 interface Props {
   todos: Todo[];
@@ -22,6 +23,7 @@ interface Props {
   onAddSection: (name: string) => void;
   onReorderSections: (sections: ToggleSection[]) => void;
   onMoveToToday: (sectionId: string) => void;
+  pushUndo: (action: UndoAction) => void;
 }
 
 type DragType = 'todo' | 'section' | null;
@@ -55,6 +57,7 @@ export function TodoList({
   onAddSection,
   onReorderSections,
   onMoveToToday,
+  pushUndo,
 }: Props) {
   const [newSection, setNewSection] = useState('');
   const [showSectionInput, setShowSectionInput] = useState(false);
@@ -68,7 +71,87 @@ export function TodoList({
     position: null,
     targetIndent: 0,
   });
-  const dragRef = useRef<{ type: DragType; id: string } | null>(null);
+  const dragRef = useRef<{ type: DragType; id: string; selectedIds?: Set<string> } | null>(null);
+
+  // Multi-select state
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+
+  // Handle click on todo for selection
+  const handleTodoSelect = useCallback((id: string, e: React.MouseEvent) => {
+    if (e.shiftKey && lastSelectedId) {
+      // Shift+click: select range
+      const lastIndex = todos.findIndex((t) => t.id === lastSelectedId);
+      const currentIndex = todos.findIndex((t) => t.id === id);
+      if (lastIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(lastIndex, currentIndex);
+        const end = Math.max(lastIndex, currentIndex);
+        const rangeIds = todos.slice(start, end + 1).map((t) => t.id);
+        setSelectedIds(new Set([...selectedIds, ...rangeIds]));
+      }
+    } else if (e.metaKey || e.ctrlKey) {
+      // Cmd/Ctrl+click: toggle selection
+      const newSelected = new Set(selectedIds);
+      if (newSelected.has(id)) {
+        newSelected.delete(id);
+      } else {
+        newSelected.add(id);
+      }
+      setSelectedIds(newSelected);
+      setLastSelectedId(id);
+    } else {
+      // Regular click: select only this one
+      setSelectedIds(new Set([id]));
+      setLastSelectedId(id);
+    }
+  }, [todos, selectedIds, lastSelectedId]);
+
+  // Keyboard shortcuts for selected todos
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Copy selected todos
+      if ((e.metaKey || e.ctrlKey) && e.key === 'c' && selectedIds.size > 0) {
+        const selectedTodos = todos.filter((t) => selectedIds.has(t.id));
+        const text = selectedTodos.map((t) => t.text).join('\n');
+        navigator.clipboard.writeText(text);
+      }
+      // Escape clears selection
+      if (e.key === 'Escape') {
+        setSelectedIds(new Set());
+      }
+      // Tab to indent, Shift+Tab to de-indent selected todos
+      if (e.key === 'Tab' && selectedIds.size > 0) {
+        // Only handle if not focused on an input/textarea
+        const target = e.target as HTMLElement;
+        if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+          return;
+        }
+
+        e.preventDefault();
+        const selectedTodos = todos.filter((t) => selectedIds.has(t.id));
+
+        if (e.shiftKey) {
+          // De-indent all selected todos
+          for (const todo of selectedTodos) {
+            const currentIndent = todo.indent ?? 0;
+            if (currentIndent > 0) {
+              onIndentTodo(todo.id, currentIndent - 1);
+            }
+          }
+        } else {
+          // Indent all selected todos (max indent is 3)
+          for (const todo of selectedTodos) {
+            const currentIndent = todo.indent ?? 0;
+            if (currentIndent < 3) {
+              onIndentTodo(todo.id, currentIndent + 1);
+            }
+          }
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedIds, todos, onIndentTodo]);
 
   // Touch drag for todos
   const touchDrag = useTouchDrag({
@@ -95,7 +178,16 @@ export function TodoList({
 
   // Todo drag handlers
   const handleTodoDragStart = (e: React.DragEvent, id: string) => {
-    dragRef.current = { type: 'todo', id };
+    // If dragging a selected todo, include all selected todos
+    // If dragging an unselected todo, just drag that one (and clear selection)
+    let draggedIds: Set<string>;
+    if (selectedIds.has(id)) {
+      draggedIds = selectedIds;
+    } else {
+      draggedIds = new Set([id]);
+      setSelectedIds(new Set([id]));
+    }
+    dragRef.current = { type: 'todo', id, selectedIds: draggedIds };
     setDragState((s) => ({ ...s, type: 'todo', draggedId: id }));
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -127,43 +219,80 @@ export function TodoList({
   const handleTodoDrop = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
     if (!dragRef.current || dragRef.current.type !== 'todo') return;
-    if (dragRef.current.id === targetId) return;
 
-    const draggedTodo = todos.find((t) => t.id === dragRef.current!.id);
+    const draggedIds = dragRef.current.selectedIds || new Set([dragRef.current.id]);
+
+    // Can't drop on one of the dragged items
+    if (draggedIds.has(targetId)) {
+      resetDragState();
+      return;
+    }
+
     const targetTodo = todos.find((t) => t.id === targetId);
-    if (!draggedTodo || !targetTodo) return;
+    if (!targetTodo) return;
 
-    // If moving to a different section, update sectionId
-    if (draggedTodo.sectionId !== targetTodo.sectionId) {
-      onMoveTodo(draggedTodo.id, targetTodo.sectionId);
+    // Get dragged todos in their current order
+    const draggedTodos = todos.filter((t) => draggedIds.has(t.id));
+    if (draggedTodos.length === 0) return;
+
+    // Save original state for undo
+    const originalTodos = [...todos];
+    const originalDraggedTodos = draggedTodos.map((t) => ({ ...t }));
+
+    // Remove dragged todos from the list
+    let newTodos = todos.filter((t) => !draggedIds.has(t.id));
+
+    // Find where to insert (target index in the filtered list)
+    let targetIndex = newTodos.findIndex((t) => t.id === targetId);
+    if (targetIndex === -1) {
+      resetDragState();
+      return;
     }
 
-    // Reorder within the list
-    const draggedIndex = todos.findIndex((t) => t.id === dragRef.current!.id);
-    const targetIndex = todos.findIndex((t) => t.id === targetId);
-
-    const newTodos = [...todos];
-    const [dragged] = newTodos.splice(draggedIndex, 1);
-
-    // Update sectionId and indent for the dragged todo
-    dragged.sectionId = targetTodo.sectionId;
-    dragged.indent = dragState.targetIndent;
-
-    let insertIndex = targetIndex;
+    // Adjust insert position based on drop position
     if (dragState.position === 'below') {
-      insertIndex = draggedIndex < targetIndex ? targetIndex : targetIndex + 1;
-    } else {
-      insertIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
+      targetIndex += 1;
     }
 
-    newTodos.splice(insertIndex, 0, dragged);
+    // Update section and indent for all dragged todos
+    const updatedDraggedTodos = draggedTodos.map((t) => ({
+      ...t,
+      sectionId: targetTodo.sectionId,
+      indent: dragState.targetIndent,
+    }));
+
+    // Insert all dragged todos at the target position
+    newTodos.splice(targetIndex, 0, ...updatedDraggedTodos);
     onReorderTodos(newTodos);
 
-    // Also update indent in DB
-    if (draggedTodo.indent !== dragState.targetIndent) {
-      onIndentTodo(draggedTodo.id, dragState.targetIndent);
+    // Update indent in DB for all moved todos
+    for (const todo of draggedTodos) {
+      if (todo.indent !== dragState.targetIndent) {
+        onIndentTodo(todo.id, dragState.targetIndent);
+      }
+      if (todo.sectionId !== targetTodo.sectionId) {
+        onMoveTodo(todo.id, targetTodo.sectionId);
+      }
     }
 
+    // Push undo action
+    const movedCount = draggedTodos.length;
+    pushUndo({
+      type: 'move-todos',
+      description: `Move ${movedCount} todo${movedCount > 1 ? 's' : ''}`,
+      undo: () => {
+        // Restore original order and properties
+        onReorderTodos(originalTodos);
+        // Restore original section and indent for each moved todo
+        for (const original of originalDraggedTodos) {
+          onMoveTodo(original.id, original.sectionId);
+          onIndentTodo(original.id, original.indent ?? 0);
+        }
+      },
+    });
+
+    // Clear selection after drop
+    setSelectedIds(new Set());
     resetDragState();
   };
 
@@ -222,10 +351,35 @@ export function TodoList({
     e.preventDefault();
     if (!dragRef.current || dragRef.current.type !== 'todo') return;
 
-    const draggedTodo = todos.find((t) => t.id === dragRef.current!.id);
-    if (!draggedTodo || draggedTodo.sectionId === sectionId) return;
+    const draggedIds = dragRef.current.selectedIds || new Set([dragRef.current.id]);
+    const draggedTodos = todos.filter((t) => draggedIds.has(t.id));
 
-    onMoveTodo(draggedTodo.id, sectionId);
+    // Save original sections for undo
+    const originalSections = draggedTodos.map((t) => ({ id: t.id, sectionId: t.sectionId }));
+    const todosToMove = draggedTodos.filter((t) => t.sectionId !== sectionId);
+
+    if (todosToMove.length === 0) {
+      resetDragState();
+      return;
+    }
+
+    // Move all selected todos to the section
+    for (const todo of todosToMove) {
+      onMoveTodo(todo.id, sectionId);
+    }
+
+    // Push undo action
+    pushUndo({
+      type: 'move-todos-to-section',
+      description: `Move ${todosToMove.length} todo${todosToMove.length > 1 ? 's' : ''} to section`,
+      undo: () => {
+        for (const original of originalSections) {
+          onMoveTodo(original.id, original.sectionId);
+        }
+      },
+    });
+
+    setSelectedIds(new Set());
     resetDragState();
   };
 
@@ -235,10 +389,35 @@ export function TodoList({
     setUnsectionedHover(false);
     if (!dragRef.current || dragRef.current.type !== 'todo') return;
 
-    const draggedTodo = todos.find((t) => t.id === dragRef.current!.id);
-    if (!draggedTodo || draggedTodo.sectionId === null) return;
+    const draggedIds = dragRef.current.selectedIds || new Set([dragRef.current.id]);
+    const draggedTodos = todos.filter((t) => draggedIds.has(t.id));
 
-    onMoveTodo(draggedTodo.id, null);
+    // Save original sections for undo
+    const originalSections = draggedTodos.map((t) => ({ id: t.id, sectionId: t.sectionId }));
+    const todosToMove = draggedTodos.filter((t) => t.sectionId !== null);
+
+    if (todosToMove.length === 0) {
+      resetDragState();
+      return;
+    }
+
+    // Move all selected todos to unsectioned
+    for (const todo of todosToMove) {
+      onMoveTodo(todo.id, null);
+    }
+
+    // Push undo action
+    pushUndo({
+      type: 'move-todos-to-unsectioned',
+      description: `Move ${todosToMove.length} todo${todosToMove.length > 1 ? 's' : ''} to unsectioned`,
+      undo: () => {
+        for (const original of originalSections) {
+          onMoveTodo(original.id, original.sectionId);
+        }
+      },
+    });
+
+    setSelectedIds(new Set());
     resetDragState();
   };
 
@@ -324,7 +503,9 @@ export function TodoList({
             onDrop={handleTodoDrop}
             dropPosition={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.position : null}
             dropIndent={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.targetIndent : null}
-            isDragging={dragState.draggedId === todo.id}
+            isDragging={dragState.draggedId === todo.id || (dragRef.current?.selectedIds?.has(todo.id) === true && dragState.type === 'todo')}
+            isSelected={selectedIds.has(todo.id)}
+            onSelect={handleTodoSelect}
             onTouchStart={touchDrag.handleTouchStart}
             onTouchMove={touchDrag.handleTouchMove}
             onTouchEnd={touchDrag.handleTouchEnd}
@@ -357,6 +538,8 @@ export function TodoList({
           onDropOnSection={handleDropOnSection}
           onMoveToToday={onMoveToToday}
           dragState={dragState}
+          selectedIds={selectedIds}
+          onTodoSelect={handleTodoSelect}
           onTodoTouchStart={touchDrag.handleTouchStart}
           onTodoTouchMove={touchDrag.handleTouchMove}
           onTodoTouchEnd={touchDrag.handleTouchEnd}

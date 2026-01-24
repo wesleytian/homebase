@@ -52,6 +52,8 @@ interface Props {
   onDropOnSection: (e: React.DragEvent, sectionId: string) => void;
   onMoveToToday: (sectionId: string) => void;
   dragState: DragState;
+  selectedIds?: Set<string>;
+  onTodoSelect?: (id: string, e: React.MouseEvent) => void;
   onTodoTouchStart?: (e: React.TouchEvent, id: string) => void;
   onTodoTouchMove?: (e: React.TouchEvent) => void;
   onTodoTouchEnd?: () => void;
@@ -80,6 +82,8 @@ export function TodoSection({
   onDropOnSection,
   onMoveToToday,
   dragState,
+  selectedIds,
+  onTodoSelect,
   onTodoTouchStart,
   onTodoTouchMove,
   onTodoTouchEnd,
@@ -274,7 +278,9 @@ export function TodoSection({
               onDrop={onTodoDrop}
               dropPosition={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.position : null}
               dropIndent={dragState.targetId === todo.id && dragState.targetType === 'todo' ? dragState.targetIndent : null}
-              isDragging={dragState.draggedId === todo.id}
+              isDragging={dragState.draggedId === todo.id || (selectedIds?.has(todo.id) === true && dragState.type === 'todo' && dragState.draggedId !== null)}
+              isSelected={selectedIds?.has(todo.id) || false}
+              onSelect={onTodoSelect}
               onTouchStart={onTodoTouchStart}
               onTouchMove={onTodoTouchMove}
               onTouchEnd={onTodoTouchEnd}

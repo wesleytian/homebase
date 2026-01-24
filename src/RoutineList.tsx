@@ -9,6 +9,7 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (id: string, updates: { name?: string; metadata?: string; frequencyPerWeek?: number }) => void;
   onReorder: (routines: RoutineWithProgress[]) => void;
+  confettiEnabled?: boolean;
 }
 
 interface DragState {
@@ -17,7 +18,7 @@ interface DragState {
   position: DropPosition;
 }
 
-export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder }: Props) {
+export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder, confettiEnabled = false }: Props) {
   const [dragState, setDragState] = useState<DragState>({
     draggedId: null,
     targetId: null,
@@ -107,6 +108,7 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
       dropPosition={dragState.targetId === routine.id ? dragState.position : null}
+      confettiEnabled={confettiEnabled}
     />
   );
 

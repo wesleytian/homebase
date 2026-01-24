@@ -59,12 +59,14 @@ interface Props {
   settings: AppSettings;
   onSettingsChange: (settings: AppSettings) => void;
   onSortCompletedToBottom: () => void;
+  onBackfillStreaks: () => Promise<void>;
   onBack: () => void;
 }
 
-export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBottom, onBack }: Props) {
+export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBottom, onBackfillStreaks, onBack }: Props) {
   const [showSortWarning, setShowSortWarning] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
+  const [backfillStatus, setBackfillStatus] = useState<'idle' | 'loading' | 'done'>('idle');
   const [newHobbyName, setNewHobbyName] = useState('');
   const [newHobbyFrequency, setNewHobbyFrequency] = useState('');
   const [citySearch, setCitySearch] = useState(settings.location || '');
@@ -722,6 +724,46 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
             />
             <span className="toggle-slider"></span>
           </label>
+        </div>
+
+        <div className="settings-section">
+          <h2>Routines</h2>
+
+          <label className="settings-toggle">
+            <span className="settings-label">
+              <span className="settings-title">Confetti on completion</span>
+              <span className="settings-description">
+                Show confetti when you check off a routine or todo
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={settings.confettiEnabled}
+              onChange={(e) => onSettingsChange({ ...settings, confettiEnabled: e.target.checked })}
+            />
+            <span className="toggle-slider"></span>
+          </label>
+
+          <div className="settings-input-group" style={{ marginTop: '16px' }}>
+            <label className="settings-input-label">
+              <span className="settings-title">Calculate streaks from history</span>
+              <span className="settings-description">
+                Update your routine streaks based on your existing completion history
+              </span>
+            </label>
+            <button
+              className="settings-action-btn"
+              onClick={async () => {
+                setBackfillStatus('loading');
+                await onBackfillStreaks();
+                setBackfillStatus('done');
+                setTimeout(() => setBackfillStatus('idle'), 2000);
+              }}
+              disabled={backfillStatus === 'loading'}
+            >
+              {backfillStatus === 'loading' ? 'Calculating...' : backfillStatus === 'done' ? '✓ Done!' : 'Calculate Streaks'}
+            </button>
+          </div>
         </div>
       </div>
 

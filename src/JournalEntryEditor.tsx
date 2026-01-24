@@ -31,9 +31,13 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const saveTimeoutRef = useRef<number | null>(null);
   const savedTimeoutRef = useRef<number | null>(null);
+  const initializedRef = useRef(false);
 
+  // Only sync from props on initial load, not on subsequent updates
+  // This prevents the race condition where saved data overwrites newer typed content
   useEffect(() => {
-    if (entry) {
+    if (entry && !initializedRef.current) {
+      initializedRef.current = true;
       setFormData({
         gratefulFor: entry.gratefulFor,
         makeItGreat: entry.makeItGreat,

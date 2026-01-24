@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { RoutineWithProgress } from './types';
+import { Confetti } from './Confetti';
 
 export type DropPosition = 'above' | 'below' | null;
 
@@ -14,6 +15,7 @@ interface Props {
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent, id: string) => void;
   dropPosition: DropPosition;
+  confettiEnabled?: boolean;
 }
 
 export function RoutineCard({
@@ -27,14 +29,17 @@ export function RoutineCard({
   onDragLeave,
   onDrop,
   dropPosition,
+  confettiEnabled = false,
 }: Props) {
   const [editingField, setEditingField] = useState<'name' | 'metadata' | 'frequency' | null>(null);
   const [editValue, setEditValue] = useState('');
+  const [showConfetti, setShowConfetti] = useState<{ x: number; y: number } | null>(null);
+  const [celebrating, setCelebrating] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const checkBtnRef = useRef<HTMLButtonElement>(null);
 
   const isComplete = routine.completedThisWeek >= routine.frequencyPerWeek;
-  const isDaily = routine.frequencyPerWeek === 7;
-  const completedToday = isDaily && routine.completedToday;
+  const completedToday = routine.completedToday;
 
   useEffect(() => {
     if (editingField && inputRef.current) {
@@ -72,7 +77,23 @@ export function RoutineCard({
     else if (e.key === 'Escape') setEditingField(null);
   };
 
+  const handleCheck = () => {
+    if (completedToday) {
+      onDecrement(routine.id);
+    } else {
+      // Show confetti when checking off (not unchecking) and if enabled
+      if (confettiEnabled && checkBtnRef.current) {
+        const rect = checkBtnRef.current.getBoundingClientRect();
+        setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });
+        setCelebrating(true);
+        setTimeout(() => setCelebrating(false), 300);
+      }
+      onIncrement(routine.id);
+    }
+  };
+
   return (
+    <>
     <div
       className={`routine-card-compact ${isComplete ? 'complete' : ''} ${completedToday ? 'completed-today' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
       draggable={!editingField}
@@ -116,6 +137,11 @@ export function RoutineCard({
         )}
       </div>
       <div className="routine-right">
+        {routine.currentStreak > 0 && (
+          <span className={`routine-streak ${routine.streakAtRisk ? 'at-risk' : ''}`} title={`${routine.currentStreak} day streak${routine.streakAtRisk ? ' - complete today to keep it!' : ''}`}>
+            🔥 {routine.currentStreak}
+          </span>
+        )}
         {editingField === 'frequency' ? (
           <input
             ref={inputRef}
@@ -139,8 +165,9 @@ export function RoutineCard({
           </div>
         )}
         <button
-          className={`routine-check-btn ${completedToday ? 'checked' : ''}`}
-          onClick={() => completedToday ? onDecrement(routine.id) : onIncrement(routine.id)}
+          ref={checkBtnRef}
+          className={`routine-check-btn ${completedToday ? 'checked' : ''} ${celebrating ? 'celebrating' : ''}`}
+          onClick={handleCheck}
           title={completedToday ? 'Undo' : 'Mark done'}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -152,5 +179,13 @@ export function RoutineCard({
         </button>
       </div>
     </div>
+    {showConfetti && (
+      <Confetti
+        x={showConfetti.x}
+        y={showConfetti.y}
+        onComplete={() => setShowConfetti(null)}
+      />
+    )}
+    </>
   );
 }

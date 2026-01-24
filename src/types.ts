@@ -5,6 +5,10 @@ export interface Routine {
   metadata: string;
   order: number;
   createdAt: number;
+  // Streak tracking
+  currentStreak: number;
+  longestStreak: number;
+  lastStreakDate: string | null; // YYYY-MM-DD format
 }
 
 export interface Completion {
@@ -17,6 +21,7 @@ export interface Completion {
 export interface RoutineWithProgress extends Routine {
   completedThisWeek: number;
   completedToday: boolean;
+  streakAtRisk: boolean; // true if last completion was yesterday (1-day grace period)
 }
 
 export interface Todo {
