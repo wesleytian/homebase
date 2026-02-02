@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useAuth } from './AuthContext';
 import { LoginPage } from './LoginPage';
 import { trackEvent, trackFeatureUsed, trackSessionStart } from './analytics';
 import { useUndo } from './useUndo';
-import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
+import { ToastContainer, ToastItem } from './Toast';
+import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS, FriendSection, DEFAULT_SECTIONS } from './types';
 import {
   getAllRoutines,
   addRoutine,
@@ -65,21 +66,22 @@ import {
   DashboardStats,
   getMonthlyReflection,
   createOrUpdateMonthlyReflection,
+  logError,
 } from './db';
 import { RoutineList } from './RoutineList';
 import { TodoList } from './TodoList';
 import { GoalList } from './GoalList';
 import { JournalCard } from './JournalCard';
 import { JournalEntryEditor } from './JournalEntryEditor';
-import { JournalPage } from './JournalPage';
+const JournalPage = lazy(() => import('./JournalPage').then(m => ({ default: m.JournalPage })));
 import { RandomInsightCard } from './RandomInsightCard';
 import { AddNoteModal } from './AddNoteModal';
 import { ViewNotesModal } from './ViewNotesModal';
 import { FriendsCard } from './FriendsCard';
-import { FriendsPage, FriendSection, DEFAULT_SECTIONS } from './FriendsPage';
+const FriendsPage = lazy(() => import('./FriendsPage').then(m => ({ default: m.FriendsPage })));
 import { CookieJar } from './CookieJar';
 import { MonthlyReflectionModal } from './MonthlyReflection';
-import { SettingsPage } from './SettingsPage';
+const SettingsPage = lazy(() => import('./SettingsPage').then(m => ({ default: m.SettingsPage })));
 import { QuickNotes } from './QuickNotes';
 import './App.css';
 
@@ -98,8 +100,9 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
-        <p style={{ color: '#b0a898' }}>Loading...</p>
+      <div className="app app-loader">
+        <span className="loader-icon">🏡</span>
+        <div className="loader-bar-track"><div className="loader-bar-fill loader-bar-slow" /></div>
       </div>
     );
   }
@@ -113,12 +116,45 @@ export default function App() {
 
 function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const { pushUndo } = useUndo();
-  const [routines, setRoutines] = useState<RoutineWithProgress[]>([]);
-  const [todos, setTodos] = useState<Todo[]>([]);
-  const [sections, setSections] = useState<ToggleSection[]>([]);
-  const [_lifeGoals, setLifeGoals] = useState<Goal[]>([]);
-  const [yearlyGoals, setYearlyGoals] = useState<Goal[]>([]);
-  const [quarterlyGoals, setQuarterlyGoals] = useState<Goal[]>([]);
+  const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const toastIdRef = useRef(0);
+
+  const showError = useCallback((message: string, category?: string, err?: unknown) => {
+    const id = ++toastIdRef.current;
+    setToasts((prev) => [...prev, { id, message, type: 'error' as const }]);
+    const detail = err instanceof Error ? err.message : String(err ?? '');
+    console.error(`[${category || 'error'}]`, detail || message);
+    logError(category || 'unknown', message, detail);
+  }, []);
+
+  const dismissToast = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const onRoutineError = useCallback((err: unknown) => showError("Couldn't update routine. Please try again.", 'routines', err), [showError]);
+  const onTodoError = useCallback((err: unknown) => showError("Couldn't save todo. Please try again.", 'todos', err), [showError]);
+  const onSectionError = useCallback((err: unknown) => showError("Couldn't update section. Please try again.", 'sections', err), [showError]);
+  const onGoalError = useCallback((err: unknown) => showError("Couldn't save goal. Please try again.", 'goals', err), [showError]);
+
+  // Read cache synchronously to avoid loading screen on repeat visits
+  const [cachedData] = useState(() => {
+    try {
+      const raw = localStorage.getItem('dashboardCache');
+      if (raw) {
+        const parsed = JSON.parse(raw).data as unknown[];
+        return parsed;
+      }
+    } catch (e) { console.warn('Cache read failed:', e); }
+    return null;
+  });
+  const c = cachedData; // shorthand
+
+  const [routines, setRoutines] = useState<RoutineWithProgress[]>(c ? c[0] as RoutineWithProgress[] : []);
+  const [todos, setTodos] = useState<Todo[]>(c ? c[2] as Todo[] : []);
+  const [sections, setSections] = useState<ToggleSection[]>(c ? c[3] as ToggleSection[] : []);
+  const [_lifeGoals, setLifeGoals] = useState<Goal[]>(c ? c[4] as Goal[] : []);
+  const [yearlyGoals, setYearlyGoals] = useState<Goal[]>(c ? c[5] as Goal[] : []);
+  const [quarterlyGoals, setQuarterlyGoals] = useState<Goal[]>(c ? c[6] as Goal[] : []);
   // Section collapsed states (persisted to localStorage)
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>(() => {
     const saved = localStorage.getItem('collapsedSections');
@@ -150,23 +186,24 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   };
 
 
-  const [todayJournal, setTodayJournal] = useState<JournalEntry | null>(null);
+  const [todayJournal, setTodayJournal] = useState<JournalEntry | null>(c ? c[7] as JournalEntry | null : null);
   const [allJournalEntries, setAllJournalEntries] = useState<JournalEntry[]>([]);
+  const [journalEntriesLoaded, setJournalEntriesLoaded] = useState(false);
   const [showJournalEditor, setShowJournalEditor] = useState(false);
-  const [monthlyReflections, setMonthlyReflections] = useState<MonthlyReflection[]>([]);
+  const [monthlyReflections, setMonthlyReflections] = useState<MonthlyReflection[]>(c ? c[14] as MonthlyReflection[] : []);
   const [showMonthlyReflection, setShowMonthlyReflection] = useState(false);
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(c ? c[15] as DashboardStats : null);
   const [monthlyReflectionMonth, setMonthlyReflectionMonth] = useState('');
   const [currentMonthlyReflection, setCurrentMonthlyReflection] = useState<MonthlyReflection | null>(null);
   const [currentHour, setCurrentHour] = useState(new Date().getHours());
-  const [allNotes, setAllNotes] = useState<ReadingNote[]>([]);
-  const [randomNote, setRandomNote] = useState<ReadingNote | null>(null);
+  const [allNotes, setAllNotes] = useState<ReadingNote[]>(c ? c[8] as ReadingNote[] : []);
+  const [randomNote, setRandomNote] = useState<ReadingNote | null>(c ? c[9] as ReadingNote | null : null);
   const [showAddNoteModal, setShowAddNoteModal] = useState(false);
   const [showViewNotesModal, setShowViewNotesModal] = useState(false);
-  const [friends, setFriends] = useState<Friend[]>([]);
+  const [friends, setFriends] = useState<Friend[]>(c ? c[10] as Friend[] : []);
   const [friendsSections, setFriendsSections] = useState<FriendSection[]>(DEFAULT_SECTIONS);
-  const [cookieJarContent, setCookieJarContent] = useState<string>('');
-  const [quickNotesContent, setQuickNotesContent] = useState<string>('');
+  const [cookieJarContent, setCookieJarContent] = useState<string>(c ? c[11] as string : '');
+  const [quickNotesContent, setQuickNotesContent] = useState<string>(c ? c[12] as string : '');
   // Editable goal section titles (loaded from DB)
   const DEFAULT_GOAL_SECTION_TITLES = {
     q1Goals: '2026 Q1 Goals',
@@ -183,23 +220,24 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
     return DEFAULT_SETTINGS;
   });
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!cachedData);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
 
   // Hash-based routing for browser back/forward support
-  const getPageFromHash = useCallback((): 'dashboard' | 'journal' | 'friends' | 'settings' => {
-    const hash = window.location.hash.slice(1); // Remove the #
-    if (hash === 'journal' || hash === 'friends' || hash === 'settings') {
+  type Page = 'dashboard' | 'journal' | 'friends' | 'settings' | 'privacy' | 'terms';
+  const getPageFromHash = useCallback((): Page => {
+    const hash = window.location.hash.slice(1);
+    if (hash === 'journal' || hash === 'friends' || hash === 'settings' || hash === 'privacy' || hash === 'terms') {
       return hash;
     }
     return 'dashboard';
   }, []);
 
   const [showSleepModal, setShowSleepModal] = useState(false);
-  const [currentPage, setCurrentPageState] = useState<'dashboard' | 'journal' | 'friends' | 'settings'>(getPageFromHash);
+  const [currentPage, setCurrentPageState] = useState<Page>(getPageFromHash);
 
-  const setCurrentPage = useCallback((page: 'dashboard' | 'journal' | 'friends' | 'settings') => {
+  const setCurrentPage = useCallback((page: Page) => {
     const newHash = page === 'dashboard' ? '' : `#${page}`;
     if (window.location.hash !== newHash && !(page === 'dashboard' && window.location.hash === '')) {
       window.history.pushState(null, '', newHash || window.location.pathname);
@@ -224,43 +262,49 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
   }, []);
 
-  const loadData = useCallback(async () => {
-    // One-time cleanup: remove Dec 2025 reflection
-    await deleteMonthlyReflection('2025-12').catch(() => {});
-    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections] = await Promise.all([
-      getAllRoutines(),
-      getCompletionsForWeek(weekStart),
-      getAllTodos(),
-      getAllSections(),
-      getAllLifeGoals(),
-      getAllYearlyGoals(),
-      getAllQuarterlyGoals(),
-      getTodayJournalEntry(),
-      getAllJournalEntries(),
-      getAllReadingNotes(),
-      getRandomReadingNote(),
-      getAllFriends(),
-      getCookieJarContent(),
-      getQuickNotesContent(),
-      getUserSettings(),
-      getAllMonthlyReflections(),
-    ]);
+  // Lazy-load journal entries when navigating to journal page
+  useEffect(() => {
+    if (currentPage === 'journal' && !journalEntriesLoaded) {
+      getAllJournalEntries().then((entries) => {
+        setAllJournalEntries(entries);
+        setJournalEntriesLoaded(true);
+      }).catch((err) => showError("Couldn't load journal entries.", 'journal', err));
+    }
+  }, [currentPage, journalEntriesLoaded, showError]);
 
+  const [loadError, setLoadError] = useState(false);
+  const [loadProgress, setLoadProgress] = useState(0);
+
+  const applyData = useCallback((
+    allRoutines: Awaited<ReturnType<typeof getAllRoutines>>,
+    completions: Awaited<ReturnType<typeof getCompletionsForWeek>>,
+    allTodos: Todo[],
+    allSections: ToggleSection[],
+    allLifeGoals: Goal[],
+    allYearlyGoals: Goal[],
+    allQuarterlyGoals: Goal[],
+    todayEntry: Awaited<ReturnType<typeof getTodayJournalEntry>>,
+    readingNotes: ReadingNote[],
+    randomReadingNote: ReadingNote | null,
+    allFriends: Friend[],
+    cookieJar: string,
+    quickNotes: string,
+    userSettings: Awaited<ReturnType<typeof getUserSettings>>,
+    allMonthlyReflections: MonthlyReflection[],
+    stats: Awaited<ReturnType<typeof getDashboardStats>>,
+  ) => {
     const completionCounts = new Map<string, number>();
     const completedTodaySet = new Set<string>();
 
-    // Get start of today (midnight)
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStart = today.getTime();
 
-    // Weekly streak: calculate previous week start for streak-at-risk
     const currentWeekStart = getWeekStart();
     const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
 
     for (const c of completions) {
       completionCounts.set(c.routineId, (completionCounts.get(c.routineId) || 0) + 1);
-      // Check if this completion happened today
       if (c.completedAt >= todayStart) {
         completedTodaySet.add(c.routineId);
       }
@@ -269,7 +313,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => {
       const completedToday = completedTodaySet.has(r.id);
       const thisWeekCount = completionCounts.get(r.id) || 0;
-      // Streak at risk: has a streak, hasn't met this week's target, and is using grace or last streak was prev week
       const streakAtRisk = r.currentStreak > 0 && thisWeekCount < r.frequencyPerWeek && (r.streakGraceUsed || r.lastStreakWeek === prevWeekStart);
       return {
         ...r,
@@ -286,16 +329,13 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setYearlyGoals(allYearlyGoals);
     setQuarterlyGoals(allQuarterlyGoals);
     setTodayJournal(todayEntry || null);
-    setAllJournalEntries(journalEntries);
     setAllNotes(readingNotes);
     setRandomNote(randomReadingNote);
     setFriends(allFriends);
     setCookieJarContent(cookieJar);
     setQuickNotesContent(quickNotes);
     setMonthlyReflections(allMonthlyReflections);
-
-    // Load dashboard stats
-    getDashboardStats(weekStart).then(setDashboardStats);
+    setDashboardStats(stats);
 
     // Auto-trigger monthly reflection on first Sunday of the month
     const now = new Date();
@@ -311,22 +351,70 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         setCurrentMonthlyReflection(existing || null);
         setShowMonthlyReflection(true);
       }
-      // Always set the month for banner logic even if dismissed
       if (!monthlyReflectionMonth) {
         setMonthlyReflectionMonth(prevMonthStr);
         setCurrentMonthlyReflection(existing || null);
       }
     }
 
-    // Apply user settings from database
     if (userSettings.goalSectionTitles) {
       setGoalSectionTitles({ ...DEFAULT_GOAL_SECTION_TITLES, ...userSettings.goalSectionTitles });
     }
     if (userSettings.friendsSections) {
       setFriendsSections(userSettings.friendsSections);
     }
+  }, [monthlyReflectionMonth]);
+
+  const loadData = useCallback(async () => {
+    try {
+    // One-time cleanup — only run once per browser
+    if (!localStorage.getItem('cleanup_dec2025')) {
+      deleteMonthlyReflection('2025-12').catch(() => {});
+      localStorage.setItem('cleanup_dec2025', '1');
+    }
+
+    let completed = 0;
+    const total = 16;
+    const track = <T,>(p: Promise<T>): Promise<T> =>
+      p.then((v) => { completed++; setLoadProgress(Math.round((completed / total) * 100)); return v; });
+
+    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections, stats] = await Promise.all([
+      track(getAllRoutines()),
+      track(getCompletionsForWeek(weekStart)),
+      track(getAllTodos()),
+      track(getAllSections()),
+      track(getAllLifeGoals()),
+      track(getAllYearlyGoals()),
+      track(getAllQuarterlyGoals()),
+      track(getTodayJournalEntry()),
+      track(getAllReadingNotes()),
+      track(getRandomReadingNote()),
+      track(getAllFriends()),
+      track(getCookieJarContent()),
+      track(getQuickNotesContent()),
+      track(getUserSettings()),
+      track(getAllMonthlyReflections()),
+      track(getDashboardStats(weekStart)),
+    ]);
+
+    applyData(allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections, stats);
+
+    // Cache for stale-while-revalidate on next load
+    try {
+      localStorage.setItem('dashboardCache', JSON.stringify({
+        ts: Date.now(),
+        data: [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections, stats],
+      }));
+    } catch (e) { console.warn('Cache write failed:', e); }
+
+    setLoadError(false);
     setLoading(false);
-  }, [weekStart]);
+    } catch (err) {
+      console.error('Failed to load data:', err);
+      setLoadError(true);
+      setLoading(false);
+    }
+  }, [weekStart, applyData]);
 
   useEffect(() => {
     loadData();
@@ -388,9 +476,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       return result;
     } catch (error) {
       setSaveStatus('idle');
+      showError("Couldn't save changes. Please try again.", 'save', error);
       throw error;
     }
-  }, []);
+  }, [showError]);
 
   // Check if journal needs attention (show at top)
   const journalNeedsAttention = (() => {
@@ -491,7 +580,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               : r
           )
         );
-        removeLastCompletion(id, weekStart).catch(console.error);
+        removeLastCompletion(id, weekStart).catch(onRoutineError);
       },
       redo: () => {
         setRoutines((prev) =>
@@ -510,15 +599,15 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               : r
           )
         );
-        addCompletion(id).catch(console.error);
-        updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(console.error);
+        addCompletion(id).catch(onRoutineError);
+        updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(onRoutineError);
       },
     });
 
     // Sync to DB
-    addCompletion(id).catch(console.error);
+    addCompletion(id).catch(onRoutineError);
     if (newCompletedThisWeek === target && routine.completedThisWeek < target) {
-      updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(console.error);
+      updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(onRoutineError);
     }
   };
 
@@ -562,7 +651,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           )
         );
         // Sync to DB in background
-        addCompletion(id).catch(console.error);
+        addCompletion(id).catch(onRoutineError);
       },
       redo: () => {
         setRoutines((prev) =>
@@ -576,12 +665,12 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               : r
           )
         );
-        removeLastCompletion(id, weekStart).catch(console.error);
+        removeLastCompletion(id, weekStart).catch(onRoutineError);
       },
     });
 
     // Sync to DB in background
-    removeLastCompletion(id, weekStart).catch(console.error);
+    removeLastCompletion(id, weekStart).catch(onRoutineError);
   };
 
   const handleDeleteRoutine = async (id: string) => {
@@ -640,7 +729,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       description: `Add "${text.slice(0, 30)}"`,
       undo: () => {
         setTodos((prev) => prev.filter((t) => t.id !== tempId && t.id !== realId));
-        deleteTodo(realId).catch(console.error);
+        deleteTodo(realId).catch(onTodoError);
       },
     });
 
@@ -658,11 +747,11 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         } : t);
         // Sync local changes to DB if they differ
         if (tempTodo && tempTodo.text !== dbTodo.text) {
-          updateTodo({ ...dbTodo, text: tempTodo.text }).catch(console.error);
+          updateTodo({ ...dbTodo, text: tempTodo.text }).catch(onTodoError);
         }
         return updated;
       });
-    }).catch(console.error);
+    }).catch(onTodoError);
   };
 
   const handleAddTodoAfter = async (text: string, afterTodoId: string, indent: number = 0) => {
@@ -699,7 +788,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       description: 'Create todo',
       undo: () => {
         setTodos((prev) => prev.filter((t) => t.id !== realId));
-        deleteTodo(realId).catch(console.error);
+        deleteTodo(realId).catch(onTodoError);
       },
     });
 
@@ -738,13 +827,13 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
         // Sync local changes to DB if they differ
         if (preservedIndent !== dbTodo.indent || preservedText !== dbTodo.text) {
-          updateTodoText(dbTodo.id, preservedText).catch(console.error);
+          updateTodoText(dbTodo.id, preservedText).catch(onTodoError);
           if (preservedIndent !== dbTodo.indent) {
-            updateTodoIndent(dbTodo.id, preservedIndent).catch(console.error);
+            updateTodoIndent(dbTodo.id, preservedIndent).catch(onTodoError);
           }
         }
         // Reorder in background to persist positions
-        reorderTodos(updated).catch(console.error);
+        reorderTodos(updated).catch(onTodoError);
         return updated;
       });
 
@@ -758,7 +847,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           }
         }, 0);
       }
-    }).catch(console.error);
+    }).catch(onTodoError);
   };
 
   const handleAddTodoBefore = async (text: string, beforeTodoId: string, indent: number = 0) => {
@@ -790,7 +879,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       description: 'Create todo',
       undo: () => {
         setTodos((prev) => prev.filter((t) => t.id !== realId));
-        deleteTodo(realId).catch(console.error);
+        deleteTodo(realId).catch(onTodoError);
       },
     });
 
@@ -822,12 +911,12 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         } : t);
 
         if (preservedIndent !== dbTodo.indent || preservedText !== dbTodo.text) {
-          updateTodoText(dbTodo.id, preservedText).catch(console.error);
+          updateTodoText(dbTodo.id, preservedText).catch(onTodoError);
           if (preservedIndent !== dbTodo.indent) {
-            updateTodoIndent(dbTodo.id, preservedIndent).catch(console.error);
+            updateTodoIndent(dbTodo.id, preservedIndent).catch(onTodoError);
           }
         }
-        reorderTodos(updated).catch(console.error);
+        reorderTodos(updated).catch(onTodoError);
         return updated;
       });
 
@@ -840,7 +929,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           }
         }, 0);
       }
-    }).catch(console.error);
+    }).catch(onTodoError);
   };
 
   const handleToggleTodo = (id: string) => {
@@ -897,9 +986,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setTodos(newTodos);
 
     // Sync only the completed field to DB (avoid overwriting other fields like text)
-    updateTodoCompleted(id, isCompleting, completedAt).catch(console.error);
+    updateTodoCompleted(id, isCompleting, completedAt).catch(onTodoError);
     if (needsReorder) {
-      reorderTodos(newTodos).catch(console.error);
+      reorderTodos(newTodos).catch(onTodoError);
     }
 
     // Push undo action
@@ -908,20 +997,20 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       description: `${isCompleting ? 'Complete' : 'Uncomplete'} "${todo.text.slice(0, 30)}"`,
       undo: () => {
         setTodos(previousTodos);
-        updateTodoCompleted(id, todo.completed, todo.completedAt ?? null).catch(console.error);
+        updateTodoCompleted(id, todo.completed, todo.completedAt ?? null).catch(onTodoError);
         if (needsReorder) {
-          reorderTodos(previousTodos).catch(console.error);
+          reorderTodos(previousTodos).catch(onTodoError);
         }
       },
       redo: () => {
         setTodos((prev) => {
           const newTodos = prev.map((t) => t.id === id ? { ...t, completed: !todo.completed, completedAt: !todo.completed ? Date.now() : null } : t);
           if (needsReorder) {
-            reorderTodos(newTodos).catch(console.error);
+            reorderTodos(newTodos).catch(onTodoError);
           }
           return newTodos;
         });
-        updateTodoCompleted(id, !todo.completed, !todo.completed ? Date.now() : null).catch(console.error);
+        updateTodoCompleted(id, !todo.completed, !todo.completed ? Date.now() : null).catch(onTodoError);
       },
     });
   };
@@ -950,12 +1039,12 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         addTodo(todo.text, todo.sectionId, todo.indent).then((dbTodo) => {
           // Update with correct ID from DB
           setTodos((prev) => prev.map((t) => t.id === todo.id ? { ...dbTodo, order: todo.order } : t));
-        }).catch(console.error);
+        }).catch(onTodoError);
       },
     });
 
     // Sync to DB in background
-    deleteTodo(id).catch(console.error);
+    deleteTodo(id).catch(onTodoError);
   };
 
   const handleEditTodo = (id: string, text: string) => {
@@ -969,7 +1058,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text } : t)));
 
     // Sync only the text field to DB (avoid overwriting other fields)
-    updateTodoText(id, text).catch(console.error);
+    updateTodoText(id, text).catch(onTodoError);
 
     // Push undo action
     pushUndo({
@@ -977,7 +1066,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       description: `Edit "${previousText.slice(0, 20)}" → "${text.slice(0, 20)}"`,
       undo: () => {
         setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text: previousText } : t)));
-        updateTodoText(id, previousText).catch(console.error);
+        updateTodoText(id, previousText).catch(onTodoError);
       },
     });
   };
@@ -990,13 +1079,13 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, indent } : t)));
 
     // Sync only the indent field to DB (avoid overwriting other fields like text)
-    updateTodoIndent(id, indent).catch(console.error);
+    updateTodoIndent(id, indent).catch(onTodoError);
   };
 
   const handleReorderTodos = (reorderedTodos: Todo[]) => {
     setTodos(reorderedTodos);
     // Sync to DB in background
-    reorderTodos(reorderedTodos).catch(console.error);
+    reorderTodos(reorderedTodos).catch(onTodoError);
   };
 
   const handleMoveTodo = (id: string, newSectionId: string | null) => {
@@ -1007,7 +1096,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, sectionId: newSectionId } : t)));
 
     // Sync only the section field to DB (avoid overwriting other fields like text)
-    updateTodoSection(id, newSectionId).catch(console.error);
+    updateTodoSection(id, newSectionId).catch(onTodoError);
   };
 
   // Section handlers
@@ -1027,7 +1116,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     // Update state immediately (optimistic)
     setSections((prev) => prev.map((s) => (s.id === id ? updatedSection : s)));
     // Sync to DB in background
-    updateSection(updatedSection).catch(console.error);
+    updateSection(updatedSection).catch(onSectionError);
   };
 
   const handleDeleteSection = async (id: string) => {
@@ -1105,7 +1194,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         ...sections.find((s) => s.id === sourceSectionId)!,
         collapsed: true,
       }),
-    ]).catch(console.error);
+    ]).catch(onSectionError);
   };
 
 
@@ -1156,7 +1245,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     // Update state immediately (optimistic)
     setQuarterlyGoals((prev) => prev.map((g) => (g.id === id ? updatedGoal : g)));
     // Sync to DB in background
-    updateQuarterlyGoal(updatedGoal).catch(console.error);
+    updateQuarterlyGoal(updatedGoal).catch(onGoalError);
   };
 
   const handleReorderQuarterlyGoals = async (reorderedGoals: Goal[]) => {
@@ -1303,7 +1392,26 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   };
 
   if (loading) {
-    return <div className="loading">Loading...</div>;
+    return (
+      <div className="app app-loader">
+        <span className="loader-icon">🏡</span>
+        <div className="loader-bar-track"><div className="loader-bar-fill" style={{ width: `${loadProgress}%` }} /></div>
+      </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <div className="app" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', gap: '16px' }}>
+        <p style={{ color: '#b0a898', fontSize: '1.1rem' }}>Couldn't connect. Check your internet and try again.</p>
+        <button
+          onClick={() => { setLoading(true); setLoadError(false); loadData(); }}
+          style={{ padding: '10px 24px', background: '#f5a623', color: '#fff', border: 'none', borderRadius: '8px', fontSize: '0.95rem', fontFamily: 'inherit', fontWeight: 500, cursor: 'pointer' }}
+        >
+          Retry
+        </button>
+      </div>
+    );
   }
 
 
@@ -1311,11 +1419,17 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   if (currentPage === 'journal') {
     return (
       <div className="app">
-        <JournalPage
-          entries={allJournalEntries}
-          onBack={() => { setCurrentPage('dashboard'); }}
-          onSave={handleSaveJournalEntry}
-        />
+        <Suspense fallback={<div className="app-loader"><span className="loader-icon">🏡</span><div className="loader-bar-track"><div className="loader-bar-fill loader-bar-slow" /></div></div>}>
+          {journalEntriesLoaded ? (
+            <JournalPage
+              entries={allJournalEntries}
+              onBack={() => { setCurrentPage('dashboard'); }}
+              onSave={handleSaveJournalEntry}
+            />
+          ) : (
+            <div className="app-loader"><span className="loader-icon">🏡</span><div className="loader-bar-track"><div className="loader-bar-fill loader-bar-slow" /></div></div>
+          )}
+        </Suspense>
         </div>
     );
   }
@@ -1323,6 +1437,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   if (currentPage === 'friends') {
     return (
       <div className="app">
+        <Suspense fallback={<div className="app-loader"><span className="loader-icon">🏡</span><div className="loader-bar-track"><div className="loader-bar-fill loader-bar-slow" /></div></div>}>
         <FriendsPage
           friends={friends}
           sections={friendsSections}
@@ -1333,6 +1448,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onSectionsChange={handleFriendsSectionsChange}
           pushUndo={pushUndo}
         />
+        </Suspense>
         </div>
     );
   }
@@ -1340,6 +1456,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   if (currentPage === 'settings') {
     return (
       <div className="app">
+        <Suspense fallback={<div className="app-loader"><span className="loader-icon">🏡</span><div className="loader-bar-track"><div className="loader-bar-fill loader-bar-slow" /></div></div>}>
         <SettingsPage
           settings={settings}
           onSettingsChange={handleSettingsChange}
@@ -1373,12 +1490,42 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onChangeMonth={handleChangeReflectionMonth}
         />
       )}
+      </Suspense>
+      </div>
+    );
+  }
+
+  if (currentPage === 'privacy') {
+    return (
+      <div className="app">
+        <div className="policy-page">
+          <button className="policy-back-btn" onClick={() => setCurrentPage('dashboard')}>← Back</button>
+          <h1>Privacy Policy</h1>
+          <p className="policy-updated">Last updated: February 2, 2026</p>
+
+          <p>When you sign in with Google, we collect your name, email, and profile picture. We store all content you create in the app (todos, journal entries, goals, etc.) in a database. We use local storage to keep you signed in and cache data for faster loading. By using this app, you accept this policy.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentPage === 'terms') {
+    return (
+      <div className="app">
+        <div className="policy-page">
+          <button className="policy-back-btn" onClick={() => setCurrentPage('dashboard')}>← Back</button>
+          <h1>Terms of Service</h1>
+          <p className="policy-updated">Last updated: February 2, 2026</p>
+
+          <p>By using Homebase, you agree to these terms. The app is provided "as is" with no warranties. We're not liable for any data loss. We may terminate accounts or update these terms at any time.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="app">
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
       {showSleepModal && (
         <div className="sleep-modal-overlay">
           <div className="sleep-modal" onClick={(e) => e.stopPropagation()}>
@@ -1643,6 +1790,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 onEdit={handleEditQuarterlyGoal}
                 onReorder={handleReorderQuarterlyGoals}
                 onAdd={handleAddQuarterlyGoal}
+                confettiEnabled={settings.confettiEnabled}
               />
             )}
           </section>
@@ -1683,6 +1831,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 onEdit={handleEditYearlyGoal}
                 onReorder={handleReorderYearlyGoals}
                 onAdd={handleAddYearlyGoal}
+                confettiEnabled={settings.confettiEnabled}
               />
             )}
           </section>
@@ -1768,6 +1917,11 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
       <footer className="app-footer">
         Made with ❤️ in San Francisco
+        <span className="footer-links">
+          <a href="#privacy" onClick={(e) => { e.preventDefault(); setCurrentPage('privacy'); }}>Privacy</a>
+          <span className="footer-dot">·</span>
+          <a href="#terms" onClick={(e) => { e.preventDefault(); setCurrentPage('terms'); }}>Terms</a>
+        </span>
       </footer>
     </div>
   );

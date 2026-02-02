@@ -17,9 +17,24 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
+// Check localStorage for cached Supabase session to avoid flash
+function getCachedSession(): User | null {
+  try {
+    const storageKey = Object.keys(localStorage).find(k => k.startsWith('sb-') && k.endsWith('-auth-token'));
+    if (!storageKey) return null;
+    const data = JSON.parse(localStorage.getItem(storageKey) || '');
+    return data?.user ?? null;
+  } catch { return null; }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [cachedUser] = useState(() => {
+    const u = getCachedSession();
+    if (u) setCurrentUserId(u.id);
+    return u;
+  });
+  const [user, setUser] = useState<User | null>(cachedUser);
+  const [loading, setLoading] = useState(!cachedUser);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -40,17 +55,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signInWithGoogle = async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: {
-        redirectTo: window.location.origin,
-      },
-    });
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: window.location.origin,
+        },
+      });
+      if (error) throw error;
+    } catch (err) {
+      console.error('Sign in failed:', err);
+      alert('Sign in failed. Please try again.');
+    }
   };
 
   const signOut = async () => {
-    await supabase.auth.signOut();
-    setCurrentUserId(null);
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) throw error;
+      setCurrentUserId(null);
+    } catch (err) {
+      console.error('Sign out failed:', err);
+      alert('Sign out failed. Please try again.');
+    }
   };
 
   return (

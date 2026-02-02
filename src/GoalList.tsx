@@ -8,6 +8,7 @@ interface Props {
   onEdit: (id: string, updates: { title?: string; description?: string; subtasks?: GoalSubtask[] }) => void;
   onReorder: (goals: Goal[]) => void;
   onAdd: (title: string) => void;
+  confettiEnabled?: boolean;
 }
 
 interface DragState {
@@ -16,7 +17,7 @@ interface DragState {
   position: DropPosition;
 }
 
-export function GoalList({ goals, onDelete, onEdit, onReorder, onAdd }: Props) {
+export function GoalList({ goals, onDelete, onEdit, onReorder, onAdd, confettiEnabled = false }: Props) {
   const [dragState, setDragState] = useState<DragState>({
     draggedId: null,
     targetId: null,
@@ -117,6 +118,7 @@ export function GoalList({ goals, onDelete, onEdit, onReorder, onAdd }: Props) {
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
             dropPosition={dragState.targetId === goal.id ? dragState.position : null}
+            confettiEnabled={confettiEnabled}
           />
         ))
       )}

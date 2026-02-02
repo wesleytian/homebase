@@ -333,3 +333,15 @@ export const HOBBY_FREQUENCY_OPTIONS = [
   { value: 'monthly', label: 'Monthly' },
   { value: 'occasionally', label: 'Occasionally' },
 ];
+
+export interface FriendSection {
+  id: string;
+  name: string;
+  tier: number;
+}
+
+export const DEFAULT_SECTIONS: FriendSection[] = [
+  { id: 'close', name: 'Close Friends', tier: 1 },
+  { id: 'friends', name: 'Friends', tier: 2 },
+  { id: 'nofollow', name: 'No Follow Up', tier: 3 },
+];

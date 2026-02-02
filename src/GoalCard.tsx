@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Goal, GoalSubtask } from './types';
+import { Confetti } from './Confetti';
 
 export type DropPosition = 'above' | 'below' | null;
 
@@ -12,6 +13,7 @@ interface Props {
   onDragLeave: () => void;
   onDrop: (e: React.DragEvent, id: string) => void;
   dropPosition: DropPosition;
+  confettiEnabled?: boolean;
 }
 
 export function GoalCard({
@@ -23,13 +25,20 @@ export function GoalCard({
   onDragLeave,
   onDrop,
   dropPosition,
+  confettiEnabled = false,
 }: Props) {
   const [editingField, setEditingField] = useState<'title' | 'description' | null>(null);
   const [editValue, setEditValue] = useState('');
   const [newSubtask, setNewSubtask] = useState('');
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('expandedGoals') || '[]');
+      return saved.includes(goal.id);
+    } catch { return false; }
+  });
   const [editingSubtaskId, setEditingSubtaskId] = useState<string | null>(null);
   const [editingSubtaskText, setEditingSubtaskText] = useState('');
+  const [showConfetti, setShowConfetti] = useState<{ x: number; y: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const subtaskInputRef = useRef<HTMLInputElement>(null);
@@ -93,7 +102,15 @@ export function GoalCard({
     subtaskInputRef.current?.focus();
   };
 
-  const toggleSubtask = (subtaskId: string) => {
+  const toggleSubtask = (subtaskId: string, e?: React.ChangeEvent<HTMLInputElement>) => {
+    const subtask = (goal.subtasks || []).find((st) => st.id === subtaskId);
+    if (confettiEnabled && subtask && !subtask.completed && e?.target) {
+      const rect = e.target.getBoundingClientRect();
+      setShowConfetti(null);
+      requestAnimationFrame(() => {
+        setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });
+      });
+    }
     const updatedSubtasks = (goal.subtasks || []).map((st) =>
       st.id === subtaskId ? { ...st, completed: !st.completed } : st
     );
@@ -235,7 +252,15 @@ export function GoalCard({
         <span className="goal-drag-handle">⋮⋮</span>
         <button
           className={`goal-expand-toggle ${expanded ? 'expanded' : ''}`}
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => {
+            const next = !expanded;
+            setExpanded(next);
+            try {
+              const saved: string[] = JSON.parse(localStorage.getItem('expandedGoals') || '[]');
+              const updated = next ? [...saved, goal.id] : saved.filter(id => id !== goal.id);
+              localStorage.setItem('expandedGoals', JSON.stringify(updated));
+            } catch { /* ignore */ }
+          }}
         >
           ▶
         </button>
@@ -299,7 +324,7 @@ export function GoalCard({
                   <input
                     type="checkbox"
                     checked={subtask.completed}
-                    onChange={() => toggleSubtask(subtask.id)}
+                    onChange={(e) => toggleSubtask(subtask.id, e)}
                   />
                   <span className="checkmark"></span>
                 </label>
@@ -330,6 +355,9 @@ export function GoalCard({
             </form>
           </div>
         </div>
+      )}
+      {showConfetti && (
+        <Confetti x={showConfetti.x} y={showConfetti.y} onComplete={() => setShowConfetti(null)} />
       )}
     </div>
   );

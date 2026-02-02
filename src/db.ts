@@ -17,6 +17,22 @@ function requireUserId(): string {
   return currentUserId;
 }
 
+// Fire-and-forget error logging to Supabase
+export function logError(category: string, message: string, detail?: string): void {
+  try {
+    const userId = currentUserId;
+    if (!userId) return;
+    supabase
+      .from('error_logs')
+      .insert({ user_id: userId, category, message, detail: detail || null })
+      .then(({ error }) => {
+        if (error) console.warn('Failed to log error:', error.message);
+      });
+  } catch {
+    // Never let error logging cause additional errors
+  }
+}
+
 // Helper to convert snake_case to camelCase
 function toCamel<T>(row: Record<string, unknown>): T {
   const result: Record<string, unknown> = {};

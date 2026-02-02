@@ -1,18 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Friend, FriendTier } from './types';
+import { Friend, FriendTier, FriendSection } from './types';
 import { UndoAction } from './useUndo';
-
-export interface FriendSection {
-  id: string;
-  name: string;
-  tier: number; // Maps to FriendTier for storage
-}
-
-export const DEFAULT_SECTIONS: FriendSection[] = [
-  { id: 'close', name: 'Close Friends', tier: 1 },
-  { id: 'friends', name: 'Friends', tier: 2 },
-  { id: 'nofollow', name: 'No Follow Up', tier: 3 },
-];
 
 interface Props {
   friends: Friend[];

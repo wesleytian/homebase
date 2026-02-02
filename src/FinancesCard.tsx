@@ -8,7 +8,11 @@ interface Props {
 
 export function FinancesCard({ content, onSave, isReviewTime }: Props) {
   const [value, setValue] = useState(content);
-  const [isCollapsed, setIsCollapsed] = useState(!isReviewTime);
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    const saved = localStorage.getItem('financesCardCollapsed');
+    if (saved !== null) return JSON.parse(saved);
+    return !isReviewTime;
+  });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [isFocused, setIsFocused] = useState(false);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -60,7 +64,11 @@ export function FinancesCard({ content, onSave, isReviewTime }: Props) {
 
   return (
     <div className={`finances-card ${isReviewTime ? 'review-time' : ''}`}>
-      <div className="finances-header" onClick={() => setIsCollapsed(!isCollapsed)}>
+      <div className="finances-header" onClick={() => {
+        const next = !isCollapsed;
+        setIsCollapsed(next);
+        localStorage.setItem('financesCardCollapsed', JSON.stringify(next));
+      }}>
         <div className="finances-header-left">
           <span className={`section-arrow ${isCollapsed ? '' : 'open'}`}>▶</span>
           <span className="finances-title">Finances</span>
