@@ -1783,6 +1783,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       )}
 
       {aiChatComponent}
+
+      <footer className="app-footer">
+        Made with ❤️ in SF
+      </footer>
     </div>
   );
 }
