@@ -1409,7 +1409,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         </div>
       )}
       <header>
-        <h1>{settings.firstName ? `${settings.firstName}'s HQ` : 'HQ'}</h1>
+        <h1>{settings.firstName ? `${settings.firstName}'s Homebase` : 'Homebase'}</h1>
         <p className="week-range">{formatWeekRange(weekStart)}</p>
         {saveStatus !== 'idle' && (
           <span className={`save-status ${saveStatus}`}>
@@ -1447,7 +1447,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               <span className="dashboard-stat-label">wk streak</span>
             </div>
           )}
-          <div className="dashboard-stat-card" data-tooltip="Days since you started using HQ">
+          <div className="dashboard-stat-card" data-tooltip="Days since you started using Homebase">
             <span className="dashboard-stat-icon">⚡</span>
             <span className="dashboard-stat-value">{dashboardStats.daysOnPlatform}</span>
             <span className="dashboard-stat-label">days</span>

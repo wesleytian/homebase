@@ -175,7 +175,7 @@ ${quarterlyGoals.map(g => `- ${g.title}${g.description ? `: ${g.description}` : 
       userContextText += `Hobbies: ${hobbiesText}\n`;
     }
 
-    return `You are an AI assistant integrated into Command Center, a personal life operating system.
+    return `You are an AI assistant integrated into Homebase, a personal life operating system.
 
 TODAY'S DATE: ${today}
 
@@ -342,7 +342,7 @@ ${friendsText}
               <div className="ai-chat-messages">
                 {messages.length === 0 ? (
                   <div className="ai-chat-empty">
-                    <p>I can help you prioritize, find patterns, and make suggestions based on your Command Center data.</p>
+                    <p>I can help you prioritize, find patterns, and make suggestions based on your Homebase data.</p>
                     <div className="ai-chat-suggestions">
                       {suggestions.map((s, i) => (
                         <button key={i} className="ai-chat-suggestion" onClick={() => handleSuggestionClick(s)}>

@@ -213,7 +213,7 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
             Life is short. Spend it on what matters.
           </p>
           <p className="about-description">
-            Modern life throws too much at you. HQ cuts through the noise —
+            Modern life throws too much at you. Homebase cuts through the noise —
             one place to see everything, act on what matters, and let AI handle the rest.
           </p>
           <p className="about-description">
@@ -233,7 +233,7 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
                 <strong>Stay on track</strong> — Keep your goals, routines, and daily tasks visible and accountable. Build momentum through consistency.
               </li>
               <li>
-                <strong>Give AI full context</strong> — Most AI interactions fail because context is missing. HQ gives AI everything it needs: your relationships, health, finances, goals, tasks, and who you are.
+                <strong>Give AI full context</strong> — Most AI interactions fail because context is missing. Homebase gives AI everything it needs: your relationships, health, finances, goals, tasks, and who you are.
               </li>
             </ul>
           </div>
@@ -276,7 +276,7 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
               {lifetimeStats.accountCreatedAt && (
                 <div className="stat-item stat-wide">
                   <span className="stat-value">{Math.floor((Date.now() - lifetimeStats.accountCreatedAt) / (1000 * 60 * 60 * 24))} days</span>
-                  <span className="stat-label">Using Command Center</span>
+                  <span className="stat-label">Using Homebase</span>
                 </div>
               )}
             </div>

@@ -6,8 +6,8 @@ export function LoginPage({ onSignIn }: Props) {
   return (
     <div className="login-page">
       <div className="login-card">
-        <h1>HQ</h1>
-        <p>Your personal command center</p>
+        <h1>Homebase</h1>
+        <p>Your personal headquarters</p>
         <button className="login-google-btn" onClick={onSignIn}>
           <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
             <path d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z" fill="#4285F4"/>
