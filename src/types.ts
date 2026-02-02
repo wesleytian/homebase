@@ -5,10 +5,11 @@ export interface Routine {
   metadata: string;
   order: number;
   createdAt: number;
-  // Streak tracking
+  // Streak tracking (weekly streaks - consecutive weeks meeting frequency target)
   currentStreak: number;
   longestStreak: number;
-  lastStreakDate: string | null; // YYYY-MM-DD format
+  lastStreakWeek: number | null; // week-start timestamp of last streak week
+  streakGraceUsed: boolean; // true if grace period was used (missed 1 week)
 }
 
 export interface Completion {
@@ -21,7 +22,7 @@ export interface Completion {
 export interface RoutineWithProgress extends Routine {
   completedThisWeek: number;
   completedToday: boolean;
-  streakAtRisk: boolean; // true if last completion was yesterday (1-day grace period)
+  streakAtRisk: boolean; // true if using grace period (missed last week but streak preserved)
 }
 
 export interface Todo {
@@ -66,6 +67,42 @@ export interface JournalEntry {
   affirmations: string;
   amazingThings: string; // placeholder for evening question 1
   learned: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface MonthlyReflection {
+  id: string;
+  month: string; // YYYY-MM format
+  overall: string;
+  challenges: string;
+  lookingForward: string;
+  ratingOverall: number;
+  ratingHealth: number;
+  ratingCareer: number;
+  ratingFinances: number;
+  ratingFriends: number;
+  ratingFamily: number;
+  ratingRomance: number;
+  ratingFun: number;
+  ratingGrowth: number;
+  ratingMentalHealth: number;
+  ratingSpirituality: number;
+  ratingEnvironment: number;
+  ratingProductivity: number;
+  notesOverall: string;
+  notesHealth: string;
+  notesCareer: string;
+  notesFinances: string;
+  notesFriends: string;
+  notesFamily: string;
+  notesRomance: string;
+  notesFun: string;
+  notesGrowth: string;
+  notesMentalHealth: string;
+  notesSpirituality: string;
+  notesEnvironment: string;
+  notesProductivity: string;
   createdAt: number;
   updatedAt: number;
 }
@@ -132,6 +169,8 @@ export interface AppSettings {
   teamSize: string;
   energyLevel: string;
   // Personal info
+  firstName: string;
+  lastName: string;
   location: string; // city, country (combined display)
   customCity: string; // for custom city entry
   customCountry: string; // for custom country selection
@@ -148,6 +187,21 @@ export interface AppSettings {
   bodyFatMethod: string;
   hobbies: Hobby[];
   financeSheetUrl: string;
+  // Personality
+  mbtiType: string;
+  enneagramType: string;
+  big5Openness: string;
+  big5Conscientiousness: string;
+  big5Extraversion: string;
+  big5Agreeableness: string;
+  big5Neuroticism: string;
+  // Background
+  upbringing: string;
+  values: string;
+  strengths: string;
+  weaknesses: string;
+  loveLanguage: string;
+  attachmentStyle: string;
 }
 
 export const BODY_FAT_METHOD_OPTIONS = [
@@ -204,6 +258,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   companyStage: '',
   teamSize: '',
   energyLevel: '',
+  firstName: '',
+  lastName: '',
   location: '',
   customCity: '',
   customCountry: '',
@@ -220,6 +276,19 @@ export const DEFAULT_SETTINGS: AppSettings = {
   bodyFatMethod: '',
   hobbies: [],
   financeSheetUrl: '',
+  mbtiType: '',
+  enneagramType: '',
+  big5Openness: '',
+  big5Conscientiousness: '',
+  big5Extraversion: '',
+  big5Agreeableness: '',
+  big5Neuroticism: '',
+  upbringing: '',
+  values: '',
+  strengths: '',
+  weaknesses: '',
+  loveLanguage: '',
+  attachmentStyle: '',
 };
 
 export const AI_HELP_OPTIONS = [

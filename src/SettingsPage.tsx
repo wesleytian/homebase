@@ -10,6 +10,7 @@ import {
   BODY_FAT_METHOD_OPTIONS,
   COUNTRIES,
 } from './types';
+import { getLifetimeStats, LifetimeStats } from './db';
 import { WORLD_CITIES } from './cities';
 
 const FOUNDER_KEYWORDS = ['founder', 'ceo', 'cofounder', 'co-founder', 'owner', 'entrepreneur', 'cto', 'coo'];
@@ -61,9 +62,10 @@ interface Props {
   onSortCompletedToBottom: () => void;
   onBackfillStreaks: () => Promise<void>;
   onBack: () => void;
+  onOpenMonthlyReflection: () => void;
 }
 
-export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBottom, onBackfillStreaks, onBack }: Props) {
+export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBottom, onBackfillStreaks, onBack, onOpenMonthlyReflection }: Props) {
   const [showSortWarning, setShowSortWarning] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const [backfillStatus, setBackfillStatus] = useState<'idle' | 'loading' | 'done'>('idle');
@@ -71,6 +73,11 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
   const [newHobbyFrequency, setNewHobbyFrequency] = useState('');
   const [citySearch, setCitySearch] = useState(settings.location || '');
   const [showCityDropdown, setShowCityDropdown] = useState(false);
+  const [lifetimeStats, setLifetimeStats] = useState<LifetimeStats | null>(null);
+
+  useEffect(() => {
+    getLifetimeStats().then(setLifetimeStats);
+  }, []);
 
   // Filter cities based on search
   const locationResults = citySearch
@@ -206,7 +213,7 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
             Life is short. Spend it on what matters.
           </p>
           <p className="about-description">
-            Modern life throws too much at you. Command Center cuts through the noise —
+            Modern life throws too much at you. HQ cuts through the noise —
             one place to see everything, act on what matters, and let AI handle the rest.
           </p>
           <p className="about-description">
@@ -216,7 +223,6 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
           <p className="about-description last">
             Close the gap between who you are and who you want to be.
           </p>
-
           <div className="about-goals">
             <h3>Goals</h3>
             <ul>
@@ -227,10 +233,56 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
                 <strong>Stay on track</strong> — Keep your goals, routines, and daily tasks visible and accountable. Build momentum through consistency.
               </li>
               <li>
-                <strong>Give AI full context</strong> — Most AI interactions fail because context is missing. Command Center gives AI everything it needs: your relationships, health, finances, goals, tasks, and who you are.
+                <strong>Give AI full context</strong> — Most AI interactions fail because context is missing. HQ gives AI everything it needs: your relationships, health, finances, goals, tasks, and who you are.
               </li>
             </ul>
           </div>
+        </div>
+
+        <div className="settings-section">
+          <h2>Lifetime Stats</h2>
+          {lifetimeStats ? (
+            <div className="lifetime-stats-grid">
+              <div className="stat-item">
+                <span className="stat-value">{lifetimeStats.totalTodosCompleted}</span>
+                <span className="stat-label">Todos Completed</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-value">{lifetimeStats.totalTodosCreated}</span>
+                <span className="stat-label">Todos Created</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-value">{lifetimeStats.totalRoutineCompletions}</span>
+                <span className="stat-label">Routine Check-ins</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-value">{lifetimeStats.totalJournalEntries}</span>
+                <span className="stat-label">Journal Entries</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-value">{lifetimeStats.totalReadingNotes}</span>
+                <span className="stat-label">Reading Notes</span>
+              </div>
+              <div className="stat-item">
+                <span className="stat-value">{lifetimeStats.totalMonthlyReflections}</span>
+                <span className="stat-label">Monthly Reflections</span>
+              </div>
+              {lifetimeStats.longestRoutineStreak > 0 && (
+                <div className="stat-item stat-wide">
+                  <span className="stat-value">{lifetimeStats.longestRoutineStreak} days</span>
+                  <span className="stat-label">Longest Streak ({lifetimeStats.longestStreakRoutineName})</span>
+                </div>
+              )}
+              {lifetimeStats.accountCreatedAt && (
+                <div className="stat-item stat-wide">
+                  <span className="stat-value">{Math.floor((Date.now() - lifetimeStats.accountCreatedAt) / (1000 * 60 * 60 * 24))} days</span>
+                  <span className="stat-label">Using Command Center</span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="about-description">Loading stats...</p>
+          )}
         </div>
 
         <div className="settings-section">
@@ -353,6 +405,28 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
               </div>
             </div>
           )}
+
+          <div className="settings-input-group">
+            <label className="settings-input-label">
+              <span className="settings-title">Name</span>
+            </label>
+            <div className="settings-name-row">
+              <input
+                type="text"
+                className="settings-text-input"
+                placeholder="First name"
+                value={settings.firstName}
+                onChange={(e) => onSettingsChange({ ...settings, firstName: e.target.value })}
+              />
+              <input
+                type="text"
+                className="settings-text-input"
+                placeholder="Last name"
+                value={settings.lastName}
+                onChange={(e) => onSettingsChange({ ...settings, lastName: e.target.value })}
+              />
+            </div>
+          </div>
 
           <div className="settings-input-group">
             <label className="settings-input-label">
@@ -678,6 +752,186 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
           </div>
         </div>
 
+
+        <div className="settings-section">
+          <h2>Know Yourself</h2>
+
+          <div className="settings-subsection">
+            <h3>Personality Types</h3>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">MBTI Type</span>
+                <a href="https://www.16personalities.com/free-personality-test" target="_blank" rel="noopener noreferrer" className="settings-quiz-link">Take the test →</a>
+              </label>
+              <select
+                className="settings-select"
+                value={settings.mbtiType || ''}
+                onChange={(e) => onSettingsChange({ ...settings, mbtiType: e.target.value })}
+              >
+                <option value="">Select...</option>
+                {['INTJ', 'INTP', 'ENTJ', 'ENTP', 'INFJ', 'INFP', 'ENFJ', 'ENFP', 'ISTJ', 'ISFJ', 'ESTJ', 'ESFJ', 'ISTP', 'ISFP', 'ESTP', 'ESFP'].map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Enneagram Type</span>
+                <a href="https://www.truity.com/test/enneagram-personality-test" target="_blank" rel="noopener noreferrer" className="settings-quiz-link">Take the test →</a>
+              </label>
+              <select
+                className="settings-select"
+                value={settings.enneagramType || ''}
+                onChange={(e) => onSettingsChange({ ...settings, enneagramType: e.target.value })}
+              >
+                <option value="">Select...</option>
+                {[
+                  { v: '1', l: 'Type 1 — The Reformer' },
+                  { v: '2', l: 'Type 2 — The Helper' },
+                  { v: '3', l: 'Type 3 — The Achiever' },
+                  { v: '4', l: 'Type 4 — The Individualist' },
+                  { v: '5', l: 'Type 5 — The Investigator' },
+                  { v: '6', l: 'Type 6 — The Loyalist' },
+                  { v: '7', l: 'Type 7 — The Enthusiast' },
+                  { v: '8', l: 'Type 8 — The Challenger' },
+                  { v: '9', l: 'Type 9 — The Peacemaker' },
+                ].map(t => (
+                  <option key={t.v} value={t.v}>{t.l}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Big Five (OCEAN)</span>
+                <a href="https://understandmyself.com" target="_blank" rel="noopener noreferrer" className="settings-quiz-link">Take the test →</a>
+              </label>
+              <div className="big5-grid">
+                {[
+                  { key: 'big5Openness', label: 'Openness' },
+                  { key: 'big5Conscientiousness', label: 'Conscientiousness' },
+                  { key: 'big5Extraversion', label: 'Extraversion' },
+                  { key: 'big5Agreeableness', label: 'Agreeableness' },
+                  { key: 'big5Neuroticism', label: 'Neuroticism' },
+                ].map(({ key, label }) => (
+                  <div key={key} className="big5-row">
+                    <span className="big5-label">{label}</span>
+                    <select
+                      className="settings-select big5-select"
+                      value={(settings as unknown as Record<string, string>)[key] || ''}
+                      onChange={(e) => onSettingsChange({ ...settings, [key]: e.target.value })}
+                    >
+                      <option value="">—</option>
+                      <option value="very-low">Very Low</option>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="very-high">Very High</option>
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Love Language</span>
+                <a href="https://5lovelanguages.com/quizzes/love-language" target="_blank" rel="noopener noreferrer" className="settings-quiz-link">Take the quiz →</a>
+              </label>
+              <select
+                className="settings-select"
+                value={settings.loveLanguage || ''}
+                onChange={(e) => onSettingsChange({ ...settings, loveLanguage: e.target.value })}
+              >
+                <option value="">Select...</option>
+                <option value="words-of-affirmation">Words of Affirmation</option>
+                <option value="quality-time">Quality Time</option>
+                <option value="receiving-gifts">Receiving Gifts</option>
+                <option value="acts-of-service">Acts of Service</option>
+                <option value="physical-touch">Physical Touch</option>
+              </select>
+            </div>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Attachment Style</span>
+                <a href="https://attachment.personaldevelopmentschool.com" target="_blank" rel="noopener noreferrer" className="settings-quiz-link">Take the quiz →</a>
+              </label>
+              <select
+                className="settings-select"
+                value={settings.attachmentStyle || ''}
+                onChange={(e) => onSettingsChange({ ...settings, attachmentStyle: e.target.value })}
+              >
+                <option value="">Select...</option>
+                <option value="secure">Secure</option>
+                <option value="anxious">Anxious</option>
+                <option value="avoidant">Avoidant (Dismissive)</option>
+                <option value="fearful-avoidant">Fearful-Avoidant (Disorganized)</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="settings-subsection">
+            <h3>Background & Values</h3>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Upbringing</span>
+                <span className="settings-description">Where you grew up, family dynamics, formative experiences</span>
+              </label>
+              <textarea
+                className="settings-textarea"
+                value={settings.upbringing || ''}
+                onChange={(e) => onSettingsChange({ ...settings, upbringing: e.target.value })}
+                placeholder="E.g., Grew up in a small town in Ohio, oldest of 3 siblings..."
+                rows={3}
+              />
+            </div>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Core Values</span>
+                <span className="settings-description">What matters most to you</span>
+              </label>
+              <textarea
+                className="settings-textarea"
+                value={settings.values || ''}
+                onChange={(e) => onSettingsChange({ ...settings, values: e.target.value })}
+                placeholder="E.g., Authenticity, growth, family, impact..."
+                rows={2}
+              />
+            </div>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Strengths</span>
+              </label>
+              <textarea
+                className="settings-textarea"
+                value={settings.strengths || ''}
+                onChange={(e) => onSettingsChange({ ...settings, strengths: e.target.value })}
+                placeholder="What are you best at?"
+                rows={2}
+              />
+            </div>
+
+            <div className="settings-input-group">
+              <label className="settings-input-label">
+                <span className="settings-title">Weaknesses</span>
+              </label>
+              <textarea
+                className="settings-textarea"
+                value={settings.weaknesses || ''}
+                onChange={(e) => onSettingsChange({ ...settings, weaknesses: e.target.value })}
+                placeholder="What do you struggle with?"
+                rows={2}
+              />
+            </div>
+          </div>
+        </div>
+
         <div className="settings-section">
           <h2>Finances</h2>
           <div className="settings-input-group">
@@ -762,6 +1016,11 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
               disabled={backfillStatus === 'loading'}
             >
               {backfillStatus === 'loading' ? 'Calculating...' : backfillStatus === 'done' ? '✓ Done!' : 'Calculate Streaks'}
+            </button>
+          </div>
+          <div className="settings-input-group" style={{ marginTop: '16px' }}>
+            <button className="settings-action-btn" onClick={onOpenMonthlyReflection}>
+              Monthly Reflections
             </button>
           </div>
         </div>

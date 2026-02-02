@@ -15,6 +15,7 @@ interface Props {
   onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string | null) => void;
   onAddTodoAfter: (text: string, afterTodoId: string, indent?: number) => void;
+  onAddTodoBefore: (text: string, beforeTodoId: string, indent?: number) => void;
   onMoveTodo: (id: string, newSectionId: string | null) => void;
   onReorderTodos: (todos: Todo[]) => void;
   onToggleSection: (id: string) => void;
@@ -37,7 +38,20 @@ interface DragState {
   targetIndent: number;
 }
 
-const TODO_LIMIT = 12;
+const DATE_PATTERN = /^(Mon|Tues|Wed|Thurs|Fri|Sat|Sun),?\s*\d{1,2}\/\d{1,2}$/i;
+
+function isDateSection(name: string): boolean {
+  return DATE_PATTERN.test(name);
+}
+
+function getTodayFormatted(): string {
+  const days = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
+  const now = new Date();
+  const dayName = days[now.getDay()];
+  const month = now.getMonth() + 1;
+  const date = now.getDate();
+  return `${dayName}, ${month}/${date}`;
+}
 
 export function TodoList({
   todos,
@@ -49,6 +63,7 @@ export function TodoList({
   onIndentTodo,
   onAddTodo,
   onAddTodoAfter,
+  onAddTodoBefore,
   onMoveTodo,
   onReorderTodos,
   onToggleSection,
@@ -176,16 +191,69 @@ export function TodoList({
     setShowSectionInput(false);
   };
 
+  const getNextDaySection = (): string | null => {
+    const dayNames = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
+    const existingNames = new Set(sections.map((s) => s.name));
+
+    // Start from today, find the first day that doesn't have a section
+    const now = new Date();
+    for (let offset = 0; offset < 7; offset++) {
+      const d = new Date(now);
+      d.setDate(d.getDate() + offset);
+      const name = `${dayNames[d.getDay()]}, ${d.getMonth() + 1}/${d.getDate()}`;
+      if (!existingNames.has(name)) return name;
+    }
+    return null;
+  };
+
+  const handleAddNextDay = () => {
+    const name = getNextDaySection();
+    if (name) onAddSection(name);
+  };
+
+  // Helper to get a todo and all its children (indented todos underneath)
+  const getTodoWithChildren = (todoId: string, todoList: Todo[]): string[] => {
+    const todo = todoList.find((t) => t.id === todoId);
+    if (!todo) return [todoId];
+
+    // Filter to only todos in the same section, preserving order
+    const sectionTodos = todoList.filter((t) => t.sectionId === todo.sectionId);
+    const todoIndex = sectionTodos.findIndex((t) => t.id === todoId);
+    if (todoIndex === -1) return [todoId];
+
+    const todoIndent = todo.indent ?? 0;
+    const ids = [todoId];
+
+    // Find all children (todos with higher indent until we hit same or lower indent)
+    for (let i = todoIndex + 1; i < sectionTodos.length; i++) {
+      const t = sectionTodos[i];
+      const tIndent = t.indent ?? 0;
+      // Stop if we hit a todo with same or lower indent (not a child)
+      if (tIndent <= todoIndent) break;
+      ids.push(t.id);
+    }
+
+    return ids;
+  };
+
   // Todo drag handlers
   const handleTodoDragStart = (e: React.DragEvent, id: string) => {
-    // If dragging a selected todo, include all selected todos
-    // If dragging an unselected todo, just drag that one (and clear selection)
+    // If dragging a selected todo, include all selected todos plus their children
+    // If dragging an unselected todo, drag that one plus its children
     let draggedIds: Set<string>;
     if (selectedIds.has(id)) {
-      draggedIds = selectedIds;
+      // Include children for all selected todos
+      const allIds = new Set<string>();
+      for (const selectedId of selectedIds) {
+        for (const childId of getTodoWithChildren(selectedId, todos)) {
+          allIds.add(childId);
+        }
+      }
+      draggedIds = allIds;
     } else {
-      draggedIds = new Set([id]);
-      setSelectedIds(new Set([id]));
+      // Drag this todo and its children
+      draggedIds = new Set(getTodoWithChildren(id, todos));
+      setSelectedIds(draggedIds);
     }
     dragRef.current = { type: 'todo', id, selectedIds: draggedIds };
     setDragState((s) => ({ ...s, type: 'todo', draggedId: id }));
@@ -196,7 +264,11 @@ export function TodoList({
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
 
-    if (!dragRef.current || dragRef.current.id === targetId) {
+    // Only handle todo-to-todo drag overs, not section drags
+    if (!dragRef.current || dragRef.current.type !== 'todo') return;
+
+    // Ignore if hovering over the dragged item or any of its children
+    if (dragRef.current.selectedIds?.has(targetId)) {
       setDragState((s) => ({ ...s, targetId: null, targetType: null, position: null, targetIndent: 0 }));
       return;
     }
@@ -221,6 +293,7 @@ export function TodoList({
     if (!dragRef.current || dragRef.current.type !== 'todo') return;
 
     const draggedIds = dragRef.current.selectedIds || new Set([dragRef.current.id]);
+    const primaryDraggedId = dragRef.current.id; // The todo user actually dragged
 
     // Can't drop on one of the dragged items
     if (draggedIds.has(targetId)) {
@@ -234,6 +307,11 @@ export function TodoList({
     // Get dragged todos in their current order
     const draggedTodos = todos.filter((t) => draggedIds.has(t.id));
     if (draggedTodos.length === 0) return;
+
+    // Find the primary dragged todo to calculate indent offset
+    const primaryTodo = todos.find((t) => t.id === primaryDraggedId);
+    const primaryIndent = primaryTodo?.indent ?? 0;
+    const indentOffset = dragState.targetIndent - primaryIndent;
 
     // Save original state for undo
     const originalTodos = [...todos];
@@ -255,23 +333,30 @@ export function TodoList({
     }
 
     // Update section and indent for all dragged todos
-    const updatedDraggedTodos = draggedTodos.map((t) => ({
-      ...t,
-      sectionId: targetTodo.sectionId,
-      indent: dragState.targetIndent,
-    }));
+    // Maintain relative indentation: apply the same offset to all todos
+    const updatedDraggedTodos = draggedTodos.map((t) => {
+      const originalIndent = t.indent ?? 0;
+      const newIndent = Math.min(3, Math.max(0, originalIndent + indentOffset));
+      return {
+        ...t,
+        sectionId: targetTodo.sectionId,
+        indent: newIndent,
+      };
+    });
 
     // Insert all dragged todos at the target position
     newTodos.splice(targetIndex, 0, ...updatedDraggedTodos);
     onReorderTodos(newTodos);
 
     // Update indent in DB for all moved todos
-    for (const todo of draggedTodos) {
-      if (todo.indent !== dragState.targetIndent) {
-        onIndentTodo(todo.id, dragState.targetIndent);
+    for (let i = 0; i < draggedTodos.length; i++) {
+      const original = draggedTodos[i];
+      const updated = updatedDraggedTodos[i];
+      if (original.indent !== updated.indent) {
+        onIndentTodo(original.id, updated.indent);
       }
-      if (todo.sectionId !== targetTodo.sectionId) {
-        onMoveTodo(todo.id, targetTodo.sectionId);
+      if (original.sectionId !== targetTodo.sectionId) {
+        onMoveTodo(original.id, targetTodo.sectionId);
       }
     }
 
@@ -363,9 +448,27 @@ export function TodoList({
       return;
     }
 
-    // Move all selected todos to the section
+    // Save original state for undo
+    const originalTodos = [...todos];
+
+    // Move todos to top of the target section
+    const movedIds = new Set(todosToMove.map((t) => t.id));
+    const remaining = todos.filter((t) => !movedIds.has(t.id));
+    const sectionTodos = remaining.filter((t) => t.sectionId === sectionId);
+    const firstSectionTodo = sectionTodos[0];
+    const insertIndex = firstSectionTodo
+      ? remaining.indexOf(firstSectionTodo)
+      : remaining.length;
+
+    const updatedMoved = todosToMove.map((t) => ({ ...t, sectionId: sectionId, indent: 0 }));
+    remaining.splice(insertIndex, 0, ...updatedMoved);
+    onReorderTodos(remaining);
+
     for (const todo of todosToMove) {
       onMoveTodo(todo.id, sectionId);
+      if ((todo.indent ?? 0) !== 0) {
+        onIndentTodo(todo.id, 0);
+      }
     }
 
     // Push undo action
@@ -373,6 +476,60 @@ export function TodoList({
       type: 'move-todos-to-section',
       description: `Move ${todosToMove.length} todo${todosToMove.length > 1 ? 's' : ''} to section`,
       undo: () => {
+        onReorderTodos(originalTodos);
+        for (const original of originalSections) {
+          onMoveTodo(original.id, original.sectionId);
+        }
+      },
+    });
+
+    setSelectedIds(new Set());
+    resetDragState();
+  };
+
+  // Drop at end of section (from drop zone at bottom of section content)
+  const handleDropAtEndOfSection = (e: React.DragEvent, sectionId: string) => {
+    e.preventDefault();
+    if (!dragRef.current || dragRef.current.type !== 'todo') return;
+
+    const draggedIds = dragRef.current.selectedIds || new Set([dragRef.current.id]);
+    const draggedTodos = todos.filter((t) => draggedIds.has(t.id));
+    if (draggedTodos.length === 0) {
+      resetDragState();
+      return;
+    }
+
+    const originalTodos = [...todos];
+
+    // Remove dragged todos
+    const remaining = todos.filter((t) => !draggedIds.has(t.id));
+
+    // Find the last todo in the target section (after removing dragged)
+    const sectionTodos = remaining.filter((t) => t.sectionId === sectionId);
+    const lastSectionTodo = sectionTodos[sectionTodos.length - 1];
+    const insertIndex = lastSectionTodo
+      ? remaining.indexOf(lastSectionTodo) + 1
+      : remaining.length;
+
+    // Update section for moved todos
+    const updatedDragged = draggedTodos.map((t) => ({ ...t, sectionId }));
+    remaining.splice(insertIndex, 0, ...updatedDragged);
+    onReorderTodos(remaining);
+
+    // Persist section changes
+    for (const todo of draggedTodos) {
+      if (todo.sectionId !== sectionId) {
+        onMoveTodo(todo.id, sectionId);
+      }
+    }
+
+    // Undo
+    const originalSections = draggedTodos.map((t) => ({ id: t.id, sectionId: t.sectionId }));
+    pushUndo({
+      type: 'move-todos',
+      description: `Move ${draggedTodos.length} todo${draggedTodos.length > 1 ? 's' : ''}`,
+      undo: () => {
+        onReorderTodos(originalTodos);
         for (const original of originalSections) {
           onMoveTodo(original.id, original.sectionId);
         }
@@ -422,7 +579,10 @@ export function TodoList({
   };
 
   const handleDragLeave = () => {
-    setDragState((s) => ({ ...s, targetId: null, targetType: null, position: null, targetIndent: 0 }));
+    // Only clear todo drag state, don't interfere with section drags
+    if (dragRef.current?.type === 'todo') {
+      setDragState((s) => ({ ...s, targetId: null, targetType: null, position: null, targetIndent: 0 }));
+    }
   };
 
   const resetDragState = () => {
@@ -440,11 +600,9 @@ export function TodoList({
     todos.find((t) => t.id === dragState.draggedId)?.sectionId !== null;
 
   const unsectionedTodos = todos.filter((t) => t.sectionId === null);
-  const totalTodos = todos.length;
-  const needsExpansion = totalTodos > TODO_LIMIT;
 
   return (
-    <div className={`todo-list ${expanded ? 'expanded' : ''} ${needsExpansion && !expanded ? 'collapsed' : ''}`} onDragEnd={handleDragEnd}>
+    <div className="todo-list" onDragEnd={handleDragEnd}>
       {showSectionInput ? (
         <form className="section-add-form" onSubmit={handleAddSection}>
           <input
@@ -457,9 +615,16 @@ export function TodoList({
           />
         </form>
       ) : (
-        <button className="add-section-btn" onClick={() => setShowSectionInput(true)}>
-          + Add Section
-        </button>
+        <div className="section-add-buttons">
+          <button className="add-section-btn" onClick={() => setShowSectionInput(true)}>
+            + Add Section
+          </button>
+          {getNextDaySection() && (
+            <button className="add-section-btn add-next-day-btn" onClick={handleAddNextDay}>
+              + {getNextDaySection()}
+            </button>
+          )}
+        </div>
       )}
 
       <div
@@ -483,6 +648,7 @@ export function TodoList({
             onEdit={onEditTodo}
             onIndent={onIndentTodo}
             onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
+            onCreateAbove={(id, indent) => onAddTodoBefore('', id, indent)}
             onDeleteAndFocusAbove={index > 0 ? (id) => {
               const prevTodo = unsectionedTodos[index - 1];
               onDeleteTodo(id);
@@ -513,7 +679,35 @@ export function TodoList({
         ))}
       </div>
 
-      {sections.map((section) => (
+      {(() => {
+        if (expanded) return sections;
+        // Parse date sections and find the most recent one
+        const dateSections = sections.filter((s) => isDateSection(s.name));
+        let mostRecentId: string | null = null;
+        let mostRecentTime = 0;
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        for (const s of dateSections) {
+          const match = s.name.match(/(\d{1,2})\/(\d{1,2})$/);
+          if (match) {
+            const month = parseInt(match[1]) - 1;
+            const day = parseInt(match[2]);
+            const d = new Date(currentYear, month, day);
+            // Handle year boundary (e.g., Dec dates when it's Jan)
+            if (d.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
+              d.setFullYear(currentYear - 1);
+            }
+            if (d.getTime() > mostRecentTime) {
+              mostRecentTime = d.getTime();
+              mostRecentId = s.id;
+            }
+          }
+        }
+        return sections.filter((section) => {
+          const isLater = section.name.toLowerCase() === 'later';
+          return section.id === mostRecentId || isLater;
+        });
+      })().map((section) => (
         <TodoSection
           key={section.id}
           section={section}
@@ -528,6 +722,7 @@ export function TodoList({
           onIndentTodo={onIndentTodo}
           onAddTodo={onAddTodo}
           onAddTodoAfter={onAddTodoAfter}
+          onAddTodoBefore={onAddTodoBefore}
           onTodoDragStart={handleTodoDragStart}
           onTodoDragOver={handleTodoDragOver}
           onTodoDragLeave={handleDragLeave}
@@ -536,6 +731,7 @@ export function TodoList({
           onSectionDragOver={handleSectionDragOver}
           onSectionDrop={handleSectionDrop}
           onDropOnSection={handleDropOnSection}
+          onDropAtEndOfSection={handleDropAtEndOfSection}
           onMoveToToday={onMoveToToday}
           dragState={dragState}
           selectedIds={selectedIds}
@@ -546,12 +742,12 @@ export function TodoList({
         />
       ))}
 
-      {needsExpansion && (
+      {sections.some((s) => isDateSection(s.name) && s.name !== getTodayFormatted() && s.name.toLowerCase() !== 'later') && (
         <button
           className="todo-expand-btn"
           onClick={() => setExpanded(!expanded)}
         >
-          {expanded ? 'Show less' : `Show all (${totalTodos} items)`}
+          {expanded ? 'Hide history' : 'Show history'}
         </button>
       )}
     </div>

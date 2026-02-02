@@ -9,6 +9,7 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (id: string, updates: { name?: string; metadata?: string; frequencyPerWeek?: number }) => void;
   onReorder: (routines: RoutineWithProgress[]) => void;
+  onAdd: (name: string, frequency: number, metadata: string) => void;
   confettiEnabled?: boolean;
 }
 
@@ -18,7 +19,9 @@ interface DragState {
   position: DropPosition;
 }
 
-export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder, confettiEnabled = false }: Props) {
+export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder, onAdd, confettiEnabled = false }: Props) {
+  const [addingTo, setAddingTo] = useState<'daily' | 'weekly-weekday' | 'weekly-weekend' | null>(null);
+  const [newName, setNewName] = useState('');
   const [dragState, setDragState] = useState<DragState>({
     draggedId: null,
     targetId: null,
@@ -83,6 +86,15 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
     draggedIdRef.current = null;
   };
 
+  const handleAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim() || !addingTo) return;
+    const freq = addingTo === 'daily' ? 7 : addingTo === 'weekly-weekday' ? 5 : 2;
+    onAdd(newName.trim(), freq, '');
+    setNewName('');
+    setAddingTo(null);
+  };
+
   if (routines.length === 0) {
     return (
       <div className="empty-state">
@@ -91,9 +103,9 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
     );
   }
 
-  // Split routines into daily (7x/week) and weekly (less than 7x)
-  const dailyRoutines = routines.filter(r => r.frequencyPerWeek === 7);
-  const weeklyRoutines = routines.filter(r => r.frequencyPerWeek < 7);
+  // Split routines into daily (5-7x/week for weekdays or everyday) and weekly (less than 5x)
+  const dailyRoutines = routines.filter(r => r.frequencyPerWeek >= 5);
+  const weeklyRoutines = routines.filter(r => r.frequencyPerWeek < 5);
 
   const renderRoutineCard = (routine: RoutineWithProgress) => (
     <RoutineCard
@@ -114,21 +126,34 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
 
   return (
     <div className="routine-list" onDragEnd={handleDragEnd}>
-      {dailyRoutines.length > 0 && (
-        <>
-          <div className="routine-section-label">Daily</div>
-          {dailyRoutines.map(renderRoutineCard)}
-        </>
+      <div className="routine-section-header">
+        <span className="routine-section-label">Daily</span>
+        <button className="routine-add-inline" onClick={() => { setAddingTo('daily'); setNewName(''); }}>+</button>
+      </div>
+      {addingTo === 'daily' && (
+        <form className="routine-add-inline-form" onSubmit={handleAdd}>
+          <input type="text" placeholder="Routine name..." value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus onBlur={() => !newName && setAddingTo(null)} />
+        </form>
       )}
-      {dailyRoutines.length > 0 && weeklyRoutines.length > 0 && (
+      {dailyRoutines.map(renderRoutineCard)}
+
+      {(dailyRoutines.length > 0 || weeklyRoutines.length > 0) && (
         <div className="routine-section-divider" />
       )}
-      {weeklyRoutines.length > 0 && (
-        <>
-          <div className="routine-section-label">Weekly</div>
-          {weeklyRoutines.map(renderRoutineCard)}
-        </>
+
+      <div className="routine-section-header">
+        <span className="routine-section-label">Weekly</span>
+        <div className="routine-add-inline-group">
+          <button className="routine-add-inline" onClick={() => { setAddingTo('weekly-weekday'); setNewName(''); }} data-tooltip="Add weekday routine (5x/week)">+ weekday</button>
+          <button className="routine-add-inline" onClick={() => { setAddingTo('weekly-weekend'); setNewName(''); }} data-tooltip="Add weekend routine (2x/week)">+ weekend</button>
+        </div>
+      </div>
+      {(addingTo === 'weekly-weekday' || addingTo === 'weekly-weekend') && (
+        <form className="routine-add-inline-form" onSubmit={handleAdd}>
+          <input type="text" placeholder={`${addingTo === 'weekly-weekday' ? 'Weekday' : 'Weekend'} routine name...`} value={newName} onChange={(e) => setNewName(e.target.value)} autoFocus onBlur={() => !newName && setAddingTo(null)} />
+        </form>
       )}
+      {weeklyRoutines.map(renderRoutineCard)}
     </div>
   );
 }

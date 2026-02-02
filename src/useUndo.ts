@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 export interface UndoAction {
   type: string;
   undo: () => void;
+  redo?: () => void;
   description: string;
 }
 
@@ -12,11 +13,14 @@ const SHAKE_TIMEOUT = 1000; // Minimum time between shake undos (ms)
 
 export function useUndo() {
   const undoStack = useRef<UndoAction[]>([]);
+  const redoStack = useRef<UndoAction[]>([]);
   const lastShakeTime = useRef<number>(0);
   const lastAcceleration = useRef({ x: 0, y: 0, z: 0 });
 
   const pushUndo = useCallback((action: UndoAction) => {
     undoStack.current.push(action);
+    // Clear redo stack on new action
+    redoStack.current = [];
     // Keep stack size limited
     if (undoStack.current.length > MAX_UNDO_STACK) {
       undoStack.current.shift();
@@ -27,6 +31,19 @@ export function useUndo() {
     const action = undoStack.current.pop();
     if (action) {
       action.undo();
+      if (action.redo) {
+        redoStack.current.push(action);
+      }
+      return action.description;
+    }
+    return null;
+  }, []);
+
+  const redo = useCallback(() => {
+    const action = redoStack.current.pop();
+    if (action && action.redo) {
+      action.redo();
+      undoStack.current.push(action);
       return action.description;
     }
     return null;
@@ -39,6 +56,18 @@ export function useUndo() {
   // Listen for Cmd+Z / Ctrl+Z
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
+        const target = e.target as HTMLInputElement | HTMLTextAreaElement;
+        if ((target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && target.value) {
+          return;
+        }
+        e.preventDefault();
+        const description = redo();
+        if (description) {
+          console.log(`Redo: ${description}`);
+        }
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
         const target = e.target as HTMLInputElement | HTMLTextAreaElement;
 
@@ -58,7 +87,7 @@ export function useUndo() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [undo]);
+  }, [undo, redo]);
 
   // Mobile shake detection for undo
   useEffect(() => {
@@ -117,5 +146,5 @@ export function useUndo() {
     };
   }, [undo]);
 
-  return { pushUndo, undo, canUndo };
+  return { pushUndo, undo, redo, canUndo };
 }

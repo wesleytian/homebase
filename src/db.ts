@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Routine, Completion, Todo, ToggleSection, Goal, JournalEntry, ReadingNote, Friend, FriendConnection } from './types';
+import { Routine, Completion, Todo, ToggleSection, Goal, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendConnection } from './types';
 
 // Helper to convert snake_case to camelCase
 function toCamel<T>(row: Record<string, unknown>): T {
@@ -36,12 +36,13 @@ export async function getAllRoutines(): Promise<Routine[]> {
       ...routine,
       currentStreak: routine.currentStreak ?? 0,
       longestStreak: routine.longestStreak ?? 0,
-      lastStreakDate: routine.lastStreakDate ?? null,
+      lastStreakWeek: routine.lastStreakWeek ?? null,
+      streakGraceUsed: routine.streakGraceUsed ?? false,
     };
   });
 }
 
-export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'createdAt' | 'currentStreak' | 'longestStreak' | 'lastStreakDate'>): Promise<Routine> {
+export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'createdAt' | 'currentStreak' | 'longestStreak' | 'lastStreakWeek' | 'streakGraceUsed'>): Promise<Routine> {
   const { data: existing } = await supabase.from('routines').select('order').order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
@@ -80,14 +81,16 @@ export async function updateRoutineStreak(
   routineId: string,
   currentStreak: number,
   longestStreak: number,
-  lastStreakDate: string | null
+  lastStreakWeek: number | null,
+  streakGraceUsed: boolean = false
 ): Promise<void> {
   const { error } = await supabase
     .from('routines')
     .update({
       current_streak: currentStreak,
       longest_streak: longestStreak,
-      last_streak_date: lastStreakDate,
+      last_streak_week: lastStreakWeek,
+      streak_grace_used: streakGraceUsed,
     })
     .eq('id', routineId);
   if (error) throw error;
@@ -123,7 +126,7 @@ export async function getAllCompletions(): Promise<Completion[]> {
   return (data || []).map((c) => toCamel<Completion>(c));
 }
 
-// Backfill streaks from historical completion data
+// Backfill streaks from historical completion data (weekly streaks)
 export async function backfillStreaks(): Promise<void> {
   const [routines, completions] = await Promise.all([
     getAllRoutines(),
@@ -139,68 +142,86 @@ export async function backfillStreaks(): Promise<void> {
     completionsByRoutine.get(c.routineId)!.push(c.completedAt);
   }
 
-  // Calculate streaks for each routine
+  // Calculate weekly streaks for each routine
   for (const routine of routines) {
     const timestamps = completionsByRoutine.get(routine.id) || [];
     if (timestamps.length === 0) continue;
 
-    // Convert timestamps to unique dates (YYYY-MM-DD)
-    const dates = new Set<string>();
+    // Group completions by week (using getWeekStart)
+    const countByWeek = new Map<number, number>();
     for (const ts of timestamps) {
-      const d = new Date(ts);
-      dates.add(d.toISOString().split('T')[0]);
+      const ws = getWeekStart(new Date(ts));
+      countByWeek.set(ws, (countByWeek.get(ws) || 0) + 1);
     }
 
-    // Sort dates
-    const sortedDates = Array.from(dates).sort();
+    // Sort weeks descending
+    const target = routine.frequencyPerWeek;
+    const currentWeekStart = getWeekStart();
+    const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
 
-    // Calculate current streak (working backwards from today)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
-
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
-
+    // Count current streak backwards, with 1-week grace
     let currentStreak = 0;
-    let lastStreakDate: string | null = null;
+    let lastStreakWeek: number | null = null;
+    let graceUsed = false;
+    let checkWeek = currentWeekStart;
 
-    // Check if completed today or yesterday to start counting
-    if (dates.has(todayStr) || dates.has(yesterdayStr)) {
-      // Start from the most recent completion and count backwards
-      const startDate = dates.has(todayStr) ? todayStr : yesterdayStr;
-      lastStreakDate = startDate;
+    // Current week is in progress, so check if target is already met
+    const currentWeekCount = countByWeek.get(currentWeekStart) || 0;
+    if (currentWeekCount >= target) {
       currentStreak = 1;
+      lastStreakWeek = currentWeekStart;
+      checkWeek = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
+    } else {
+      // Current week not met yet, start from previous week
+      checkWeek = prevWeekStart;
+    }
 
-      let checkDate = new Date(startDate);
-      checkDate.setDate(checkDate.getDate() - 1);
-
-      while (dates.has(checkDate.toISOString().split('T')[0])) {
+    // Walk backwards through weeks
+    while (true) {
+      const count = countByWeek.get(checkWeek) || 0;
+      if (count >= target) {
         currentStreak++;
-        checkDate.setDate(checkDate.getDate() - 1);
-      }
-    }
-
-    // Calculate longest streak ever
-    let longestStreak = currentStreak;
-    let tempStreak = 1;
-
-    for (let i = 1; i < sortedDates.length; i++) {
-      const prevDate = new Date(sortedDates[i - 1]);
-      const currDate = new Date(sortedDates[i]);
-      const diffDays = Math.round((currDate.getTime() - prevDate.getTime()) / (1000 * 60 * 60 * 24));
-
-      if (diffDays === 1) {
-        tempStreak++;
-        longestStreak = Math.max(longestStreak, tempStreak);
+        if (!lastStreakWeek) lastStreakWeek = checkWeek;
+        graceUsed = false; // Reset grace if this week was met
+      } else if (!graceUsed && currentStreak > 0) {
+        // Grace period: skip one missed week
+        graceUsed = true;
       } else {
-        tempStreak = 1;
+        break;
+      }
+      checkWeek -= 7 * 24 * 60 * 60 * 1000;
+    }
+
+    // Calculate longest streak ever (with grace)
+    let longestStreak = currentStreak;
+    // Sort weeks ascending for longest calculation
+    const ascWeeks = Array.from(countByWeek.keys()).sort((a, b) => a - b);
+    let tempStreak = 0;
+    let tempGrace = false;
+    for (let i = 0; i < ascWeeks.length; i++) {
+      const count = countByWeek.get(ascWeeks[i]) || 0;
+      const prevWeek = i > 0 ? ascWeeks[i - 1] : null;
+      const isConsecutive = prevWeek !== null && (ascWeeks[i] - prevWeek === 7 * 24 * 60 * 60 * 1000);
+      const isGapOfTwo = prevWeek !== null && (ascWeeks[i] - prevWeek === 14 * 24 * 60 * 60 * 1000);
+
+      if (count >= target) {
+        if (isConsecutive || (isGapOfTwo && !tempGrace && tempStreak > 0)) {
+          if (isGapOfTwo) tempGrace = true;
+          tempStreak++;
+        } else {
+          tempStreak = 1;
+          tempGrace = false;
+        }
+        longestStreak = Math.max(longestStreak, tempStreak);
+      } else if (isConsecutive && !tempGrace && tempStreak > 0) {
+        tempGrace = true; // grace
+      } else {
+        tempStreak = 0;
+        tempGrace = false;
       }
     }
 
-    // Update the routine
-    await updateRoutineStreak(routine.id, currentStreak, longestStreak, lastStreakDate);
+    await updateRoutineStreak(routine.id, currentStreak, longestStreak, lastStreakWeek, graceUsed);
   }
 }
 
@@ -286,6 +307,45 @@ export async function updateTodo(todo: Todo): Promise<void> {
   if (error && !error.message?.includes('completed_at')) {
     throw error;
   }
+}
+
+// Specific update functions to avoid overwriting other fields
+export async function updateTodoText(id: string, text: string): Promise<void> {
+  const { error } = await supabase
+    .from('todos')
+    .update({ text })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function updateTodoIndent(id: string, indent: number): Promise<void> {
+  const { error } = await supabase
+    .from('todos')
+    .update({ indent })
+    .eq('id', id);
+  if (error) throw error;
+}
+
+export async function updateTodoCompleted(id: string, completed: boolean, completedAt: number | null): Promise<void> {
+  const updateData: Record<string, unknown> = { completed };
+  if (completedAt !== undefined) {
+    updateData.completed_at = completedAt;
+  }
+  const { error } = await supabase
+    .from('todos')
+    .update(updateData)
+    .eq('id', id);
+  if (error && !error.message?.includes('completed_at')) {
+    throw error;
+  }
+}
+
+export async function updateTodoSection(id: string, sectionId: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('todos')
+    .update({ section_id: sectionId })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function deleteTodo(id: string): Promise<void> {
@@ -787,4 +847,244 @@ export async function saveUserSettings(settings: UserSettings): Promise<void> {
     .from('user_settings')
     .upsert({ id: USER_SETTINGS_ID, settings, updated_at: Date.now() });
   if (error) throw error;
+}
+
+// Monthly Reflections
+export async function getAllMonthlyReflections(): Promise<MonthlyReflection[]> {
+  const { data, error } = await supabase
+    .from('monthly_reflections')
+    .select('*')
+    .order('month', { ascending: false });
+  if (error) throw error;
+  return (data || []).map((r) => toCamel<MonthlyReflection>(r));
+}
+
+export async function getMonthlyReflection(month: string): Promise<MonthlyReflection | undefined> {
+  const { data, error } = await supabase
+    .from('monthly_reflections')
+    .select('*')
+    .eq('month', month)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? toCamel<MonthlyReflection>(data) : undefined;
+}
+
+export async function createOrUpdateMonthlyReflection(reflection: Partial<MonthlyReflection> & { month: string }): Promise<MonthlyReflection> {
+  const existing = await getMonthlyReflection(reflection.month);
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from('monthly_reflections')
+      .update({
+        overall: reflection.overall ?? existing.overall,
+        challenges: reflection.challenges ?? existing.challenges,
+        looking_forward: reflection.lookingForward ?? existing.lookingForward,
+        rating_overall: reflection.ratingOverall ?? existing.ratingOverall,
+        rating_health: reflection.ratingHealth ?? existing.ratingHealth,
+        rating_career: reflection.ratingCareer ?? existing.ratingCareer,
+        rating_finances: reflection.ratingFinances ?? existing.ratingFinances,
+        rating_friends: reflection.ratingFriends ?? existing.ratingFriends,
+        rating_family: reflection.ratingFamily ?? existing.ratingFamily,
+        rating_romance: reflection.ratingRomance ?? existing.ratingRomance,
+        rating_fun: reflection.ratingFun ?? existing.ratingFun,
+        rating_growth: reflection.ratingGrowth ?? existing.ratingGrowth,
+        rating_mental_health: reflection.ratingMentalHealth ?? existing.ratingMentalHealth,
+        rating_spirituality: reflection.ratingSpirituality ?? existing.ratingSpirituality,
+        rating_environment: reflection.ratingEnvironment ?? existing.ratingEnvironment,
+        rating_productivity: reflection.ratingProductivity ?? existing.ratingProductivity,
+        notes_overall: reflection.notesOverall ?? existing.notesOverall,
+        notes_health: reflection.notesHealth ?? existing.notesHealth,
+        notes_career: reflection.notesCareer ?? existing.notesCareer,
+        notes_finances: reflection.notesFinances ?? existing.notesFinances,
+        notes_friends: reflection.notesFriends ?? existing.notesFriends,
+        notes_family: reflection.notesFamily ?? existing.notesFamily,
+        notes_romance: reflection.notesRomance ?? existing.notesRomance,
+        notes_fun: reflection.notesFun ?? existing.notesFun,
+        notes_growth: reflection.notesGrowth ?? existing.notesGrowth,
+        notes_mental_health: reflection.notesMentalHealth ?? existing.notesMentalHealth,
+        notes_spirituality: reflection.notesSpirituality ?? existing.notesSpirituality,
+        notes_environment: reflection.notesEnvironment ?? existing.notesEnvironment,
+        notes_productivity: reflection.notesProductivity ?? existing.notesProductivity,
+        updated_at: Date.now(),
+      })
+      .eq('id', existing.id)
+      .select()
+      .single();
+    if (error) throw error;
+    return toCamel<MonthlyReflection>(data);
+  } else {
+    const { data, error } = await supabase
+      .from('monthly_reflections')
+      .insert({
+        month: reflection.month,
+        overall: reflection.overall || '',
+        challenges: reflection.challenges || '',
+        looking_forward: reflection.lookingForward || '',
+        rating_overall: reflection.ratingOverall ?? 0,
+        rating_health: reflection.ratingHealth ?? 0,
+        rating_career: reflection.ratingCareer ?? 0,
+        rating_finances: reflection.ratingFinances ?? 0,
+        rating_friends: reflection.ratingFriends ?? 0,
+        rating_family: reflection.ratingFamily ?? 0,
+        rating_romance: reflection.ratingRomance ?? 0,
+        rating_fun: reflection.ratingFun ?? 0,
+        rating_growth: reflection.ratingGrowth ?? 0,
+        rating_mental_health: reflection.ratingMentalHealth ?? 0,
+        rating_spirituality: reflection.ratingSpirituality ?? 0,
+        rating_environment: reflection.ratingEnvironment ?? 0,
+        rating_productivity: reflection.ratingProductivity ?? 0,
+        notes_overall: reflection.notesOverall || '',
+        notes_health: reflection.notesHealth || '',
+        notes_career: reflection.notesCareer || '',
+        notes_finances: reflection.notesFinances || '',
+        notes_friends: reflection.notesFriends || '',
+        notes_family: reflection.notesFamily || '',
+        notes_romance: reflection.notesRomance || '',
+        notes_fun: reflection.notesFun || '',
+        notes_growth: reflection.notesGrowth || '',
+        notes_mental_health: reflection.notesMentalHealth || '',
+        notes_spirituality: reflection.notesSpirituality || '',
+        notes_environment: reflection.notesEnvironment || '',
+        notes_productivity: reflection.notesProductivity || '',
+        created_at: Date.now(),
+        updated_at: Date.now(),
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return toCamel<MonthlyReflection>(data);
+  }
+}
+
+
+export async function deleteMonthlyReflection(month: string): Promise<void> {
+  const { error } = await supabase
+    .from('monthly_reflections')
+    .delete()
+    .eq('month', month);
+  if (error) throw error;
+}
+
+// Lifetime stats
+export interface LifetimeStats {
+  totalTodosCreated: number;
+  totalTodosCompleted: number;
+  totalRoutineCompletions: number;
+  totalJournalEntries: number;
+  totalReadingNotes: number;
+  totalMonthlyReflections: number;
+  longestRoutineStreak: number;
+  longestStreakRoutineName: string;
+  accountCreatedAt: number | null;
+}
+
+export async function getLifetimeStats(): Promise<LifetimeStats> {
+  const [todos, completions, journals, notes, reflections, routines] = await Promise.all([
+    supabase.from('todos').select('id, completed, created_at'),
+    supabase.from('completions').select('id'),
+    supabase.from('journal_entries').select('id'),
+    supabase.from('reading_notes').select('id'),
+    supabase.from('monthly_reflections').select('id'),
+    supabase.from('routines').select('name, longest_streak, created_at').order('longest_streak', { ascending: false }),
+  ]);
+
+  const todosData = todos.data || [];
+  const routinesData = routines.data || [];
+  const topRoutine = routinesData[0];
+
+  // Find earliest created_at across todos and routines
+  let earliest: number | null = null;
+  for (const t of todosData) {
+    if (t.created_at && (!earliest || t.created_at < earliest)) earliest = t.created_at;
+  }
+  for (const r of routinesData) {
+    if (r.created_at && (!earliest || r.created_at < earliest)) earliest = r.created_at;
+  }
+
+  return {
+    totalTodosCreated: todosData.length,
+    totalTodosCompleted: todosData.filter((t: { completed: boolean }) => t.completed).length,
+    totalRoutineCompletions: (completions.data || []).length,
+    totalJournalEntries: (journals.data || []).length,
+    totalReadingNotes: (notes.data || []).length,
+    totalMonthlyReflections: (reflections.data || []).length,
+    longestRoutineStreak: topRoutine?.longest_streak || 0,
+    longestStreakRoutineName: topRoutine?.name || '',
+    accountCreatedAt: earliest,
+  };
+}
+
+// Dashboard stats
+export interface DashboardStats {
+  todosCompletedThisWeek: number;
+  dayStreak: number;
+  bestRoutineStreak: number;
+  bestRoutineStreakName: string;
+  daysOnPlatform: number;
+}
+
+export async function getDashboardStats(weekStart: number): Promise<DashboardStats> {
+  const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
+
+  const [todosRes, completionsRes, journalsRes, routinesRes] = await Promise.all([
+    supabase.from('todos').select('completed_at').not('completed_at', 'is', null),
+    supabase.from('completions').select('completed_at'),
+    supabase.from('journal_entries').select('created_at'),
+    supabase.from('routines').select('name, current_streak, longest_streak, frequency_per_week, created_at').order('current_streak', { ascending: false }),
+  ]);
+
+  // Todos completed this week
+  const allCompletedTodos = todosRes.data || [];
+  const todosCompletedThisWeek = allCompletedTodos.filter(
+    (t: { completed_at: number }) => t.completed_at >= weekStart && t.completed_at < weekEnd
+  ).length;
+
+  // Best current routine streak
+  const routinesData = routinesRes.data || [];
+  const topRoutine = routinesData[0];
+
+  // Days on platform - earliest created_at from routines
+  let earliest: number | null = null;
+  for (const r of routinesData) {
+    if (r.created_at && (!earliest || r.created_at < earliest)) earliest = r.created_at;
+  }
+  const daysOnPlatform = earliest ? Math.floor((Date.now() - earliest) / (1000 * 60 * 60 * 24)) : 0;
+
+  // Day streak - collect all active dates
+  const activeDates = new Set<string>();
+  const toDateStr = (ts: number) => {
+    const d = new Date(ts);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+
+  for (const t of allCompletedTodos) {
+    if (t.completed_at) activeDates.add(toDateStr(t.completed_at));
+  }
+  for (const c of (completionsRes.data || [])) {
+    if (c.completed_at) activeDates.add(toDateStr(c.completed_at));
+  }
+  for (const j of (journalsRes.data || [])) {
+    if (j.created_at) activeDates.add(toDateStr(j.created_at));
+  }
+
+  // Count streak backwards from today
+  let dayStreak = 0;
+  const now = new Date();
+  const check = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // If today has no activity yet, start from yesterday
+  if (!activeDates.has(toDateStr(check.getTime()))) {
+    check.setDate(check.getDate() - 1);
+  }
+  while (activeDates.has(toDateStr(check.getTime()))) {
+    dayStreak++;
+    check.setDate(check.getDate() - 1);
+  }
+
+  return {
+    todosCompletedThisWeek,
+    dayStreak,
+    bestRoutineStreak: topRoutine?.current_streak || 0,
+    bestRoutineStreakName: topRoutine?.name || '',
+    daysOnPlatform,
+  };
 }

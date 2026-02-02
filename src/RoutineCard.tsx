@@ -77,7 +77,19 @@ export function RoutineCard({
     else if (e.key === 'Escape') setEditingField(null);
   };
 
-  const handleCheck = () => {
+  const handleCheck = (e: React.MouseEvent) => {
+    // Shift+click to add extra completion (for backfilling missed days)
+    if (e.shiftKey) {
+      if (confettiEnabled && checkBtnRef.current) {
+        const rect = checkBtnRef.current.getBoundingClientRect();
+        setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });
+        setCelebrating(true);
+        setTimeout(() => setCelebrating(false), 300);
+      }
+      onIncrement(routine.id);
+      return;
+    }
+
     if (completedToday) {
       onDecrement(routine.id);
     } else {
@@ -138,7 +150,7 @@ export function RoutineCard({
       </div>
       <div className="routine-right">
         {routine.currentStreak > 0 && (
-          <span className={`routine-streak ${routine.streakAtRisk ? 'at-risk' : ''}`} title={`${routine.currentStreak} day streak${routine.streakAtRisk ? ' - complete today to keep it!' : ''}`}>
+          <span className={`routine-streak ${routine.streakAtRisk ? 'at-risk' : ''}`} data-tooltip={`${routine.currentStreak} week streak${routine.streakAtRisk ? ' - meet your target this week to keep it!' : ''}`}>
             🔥 {routine.currentStreak}
           </span>
         )}
@@ -168,7 +180,7 @@ export function RoutineCard({
           ref={checkBtnRef}
           className={`routine-check-btn ${completedToday ? 'checked' : ''} ${celebrating ? 'celebrating' : ''}`}
           onClick={handleCheck}
-          title={completedToday ? 'Undo' : 'Mark done'}
+          data-tooltip={completedToday ? 'Undo (Shift+click to add extra)' : 'Mark done'}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="20 6 9 17 4 12"></polyline>

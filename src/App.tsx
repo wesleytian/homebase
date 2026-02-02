@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { trackEvent, trackFeatureUsed, trackSessionStart } from './analytics';
 import { useUndo } from './useUndo';
-import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
+import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
 import {
   getAllRoutines,
   addRoutine,
@@ -16,6 +17,10 @@ import {
   getAllTodos,
   addTodo,
   updateTodo,
+  updateTodoText,
+  updateTodoIndent,
+  updateTodoCompleted,
+  updateTodoSection,
   deleteTodo,
   reorderTodos,
   getAllSections,
@@ -24,10 +29,6 @@ import {
   deleteSection,
   reorderSections,
   getAllLifeGoals,
-  addLifeGoal,
-  updateLifeGoal,
-  deleteLifeGoal,
-  reorderLifeGoals,
   getAllYearlyGoals,
   addYearlyGoal,
   updateYearlyGoal,
@@ -52,15 +53,18 @@ import {
   deleteFriend,
     getCookieJarContent,
   saveCookieJarContent,
-  getFinancesContent,
-  saveFinancesContent,
   getQuickNotesContent,
   saveQuickNotesContent,
   getUserSettings,
   saveUserSettings,
+  getAllMonthlyReflections,
+  deleteMonthlyReflection,
+  getDashboardStats,
+  DashboardStats,
+  getMonthlyReflection,
+  createOrUpdateMonthlyReflection,
 } from './db';
 import { RoutineList } from './RoutineList';
-import { AddRoutineForm } from './AddRoutineForm';
 import { TodoList } from './TodoList';
 import { GoalList } from './GoalList';
 import { JournalCard } from './JournalCard';
@@ -72,8 +76,7 @@ import { ViewNotesModal } from './ViewNotesModal';
 import { FriendsCard } from './FriendsCard';
 import { FriendsPage, FriendSection, DEFAULT_SECTIONS } from './FriendsPage';
 import { CookieJar } from './CookieJar';
-import { FinancesCard } from './FinancesCard';
-import { DailySummaryCard } from './DailySummaryCard';
+import { MonthlyReflectionModal } from './MonthlyReflection';
 import { SettingsPage } from './SettingsPage';
 import { AIChat } from './AIChat';
 import { QuickNotes } from './QuickNotes';
@@ -88,14 +91,6 @@ function formatWeekRange(weekStart: number): string {
   return `${start.toLocaleDateString('en-US', options)} - ${end.toLocaleDateString('en-US', options)}`;
 }
 
-function isFirstWeekendOfMonth(): boolean {
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0 = Sunday, 6 = Saturday
-  const dayOfMonth = now.getDate();
-  const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
-  const isFirstWeek = dayOfMonth <= 7;
-  return isWeekend && isFirstWeek;
-}
 
 export default function App() {
   const { pushUndo } = useUndo();
@@ -135,44 +130,15 @@ export default function App() {
     });
   };
 
-  const collapseAllExceptTodos = () => {
-    const updated = {
-      dailySummary: true,
-      quickThoughts: true,
-      gratitudeJournal: true,
-      todos: false,
-      readingNotes: true,
-      routines: true,
-      q1Goals: true,
-      yearlyGoals: true,
-      lifeGoals: true,
-      closeFriends: true,
-      cookieJar: true,
-    };
-    setCollapsedSections(updated);
-    localStorage.setItem('collapsedSections', JSON.stringify(updated));
-  };
 
-  const expandAllSections = () => {
-    const updated = {
-      dailySummary: false,
-      quickThoughts: false,
-      gratitudeJournal: false,
-      todos: false,
-      readingNotes: false,
-      routines: false,
-      q1Goals: false,
-      yearlyGoals: false,
-      lifeGoals: false,
-      closeFriends: false,
-      cookieJar: false,
-    };
-    setCollapsedSections(updated);
-    localStorage.setItem('collapsedSections', JSON.stringify(updated));
-  };
   const [todayJournal, setTodayJournal] = useState<JournalEntry | null>(null);
   const [allJournalEntries, setAllJournalEntries] = useState<JournalEntry[]>([]);
   const [showJournalEditor, setShowJournalEditor] = useState(false);
+  const [monthlyReflections, setMonthlyReflections] = useState<MonthlyReflection[]>([]);
+  const [showMonthlyReflection, setShowMonthlyReflection] = useState(false);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+  const [monthlyReflectionMonth, setMonthlyReflectionMonth] = useState('');
+  const [currentMonthlyReflection, setCurrentMonthlyReflection] = useState<MonthlyReflection | null>(null);
   const [currentHour, setCurrentHour] = useState(new Date().getHours());
   const [allNotes, setAllNotes] = useState<ReadingNote[]>([]);
   const [randomNote, setRandomNote] = useState<ReadingNote | null>(null);
@@ -181,7 +147,6 @@ export default function App() {
   const [friends, setFriends] = useState<Friend[]>([]);
   const [friendsSections, setFriendsSections] = useState<FriendSection[]>(DEFAULT_SECTIONS);
   const [cookieJarContent, setCookieJarContent] = useState<string>('');
-  const [financesContent, setFinancesContent] = useState<string>('');
   const [quickNotesContent, setQuickNotesContent] = useState<string>('');
   // Editable goal section titles (loaded from DB)
   const DEFAULT_GOAL_SECTION_TITLES = {
@@ -212,6 +177,7 @@ export default function App() {
     return 'dashboard';
   }, []);
 
+  const [showSleepModal, setShowSleepModal] = useState(false);
   const [currentPage, setCurrentPageState] = useState<'dashboard' | 'journal' | 'friends' | 'settings'>(getPageFromHash);
 
   const setCurrentPage = useCallback((page: 'dashboard' | 'journal' | 'friends' | 'settings') => {
@@ -231,8 +197,18 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, [getPageFromHash]);
 
+  // Sleep reminder - show once per session if past midnight
+  useEffect(() => {
+    const hour = new Date().getHours();
+    if (hour >= 0 && hour < 5) {
+      setShowSleepModal(true);
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
-    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, finances, quickNotes, userSettings] = await Promise.all([
+    // One-time cleanup: remove Dec 2025 reflection
+    await deleteMonthlyReflection('2025-12').catch(() => {});
+    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, journalEntries, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections] = await Promise.all([
       getAllRoutines(),
       getCompletionsForWeek(weekStart),
       getAllTodos(),
@@ -246,9 +222,9 @@ export default function App() {
       getRandomReadingNote(),
       getAllFriends(),
       getCookieJarContent(),
-      getFinancesContent(),
       getQuickNotesContent(),
       getUserSettings(),
+      getAllMonthlyReflections(),
     ]);
 
     const completionCounts = new Map<string, number>();
@@ -259,10 +235,9 @@ export default function App() {
     today.setHours(0, 0, 0, 0);
     const todayStart = today.getTime();
 
-    // Get yesterday's date string for streak-at-risk calculation
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    // Weekly streak: calculate previous week start for streak-at-risk
+    const currentWeekStart = getWeekStart();
+    const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
 
     for (const c of completions) {
       completionCounts.set(c.routineId, (completionCounts.get(c.routineId) || 0) + 1);
@@ -274,8 +249,9 @@ export default function App() {
 
     const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => {
       const completedToday = completedTodaySet.has(r.id);
-      // Streak is at risk if: has a streak, not completed today, and last streak date was yesterday
-      const streakAtRisk = r.currentStreak > 0 && !completedToday && r.lastStreakDate === yesterdayStr;
+      const thisWeekCount = completionCounts.get(r.id) || 0;
+      // Streak at risk: has a streak, hasn't met this week's target, and is using grace or last streak was prev week
+      const streakAtRisk = r.currentStreak > 0 && thisWeekCount < r.frequencyPerWeek && (r.streakGraceUsed || r.lastStreakWeek === prevWeekStart);
       return {
         ...r,
         completedThisWeek: completionCounts.get(r.id) || 0,
@@ -296,8 +272,33 @@ export default function App() {
     setRandomNote(randomReadingNote);
     setFriends(allFriends);
     setCookieJarContent(cookieJar);
-    setFinancesContent(finances);
     setQuickNotesContent(quickNotes);
+    setMonthlyReflections(allMonthlyReflections);
+
+    // Load dashboard stats
+    getDashboardStats(weekStart).then(setDashboardStats);
+
+    // Auto-trigger monthly reflection on first Sunday of the month
+    const now = new Date();
+    const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
+    if (isFirstSunday) {
+      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+      const existing = allMonthlyReflections.find((r) => r.month === prevMonthStr);
+      const isIncomplete = !existing || (!existing.overall && !existing.challenges && !existing.lookingForward && !existing.ratingOverall);
+      const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`);
+      if (isIncomplete && !dismissed) {
+        setMonthlyReflectionMonth(prevMonthStr);
+        setCurrentMonthlyReflection(existing || null);
+        setShowMonthlyReflection(true);
+      }
+      // Always set the month for banner logic even if dismissed
+      if (!monthlyReflectionMonth) {
+        setMonthlyReflectionMonth(prevMonthStr);
+        setCurrentMonthlyReflection(existing || null);
+      }
+    }
+
     // Apply user settings from database
     if (userSettings.goalSectionTitles) {
       setGoalSectionTitles({ ...DEFAULT_GOAL_SECTION_TITLES, ...userSettings.goalSectionTitles });
@@ -310,6 +311,7 @@ export default function App() {
 
   useEffect(() => {
     loadData();
+    trackSessionStart();
   }, [loadData]);
 
   // Track the last known date to detect day changes
@@ -390,6 +392,7 @@ export default function App() {
 
   // Routine handlers
   const handleAddRoutine = async (name: string, frequency: number, metadata: string) => {
+    trackEvent('action', { action: 'routine_created', name, frequency });
     await addRoutine({ name, frequencyPerWeek: frequency, metadata });
     loadData();
   };
@@ -397,43 +400,51 @@ export default function App() {
   const handleIncrement = (id: string) => {
     const routine = routines.find((r) => r.id === id);
     if (!routine) return;
+    trackEvent('action', { action: 'routine_completed', routine: routine.name }); trackFeatureUsed('routines');
 
-    // Calculate new streak values
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const todayStr = today.toISOString().split('T')[0];
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    const yesterdayStr = yesterday.toISOString().split('T')[0];
+    const newCompletedThisWeek = routine.completedThisWeek + 1;
+    const target = routine.frequencyPerWeek;
+    const currentWeekStart = getWeekStart();
+    const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
 
     let newStreak = routine.currentStreak;
     let newLongest = routine.longestStreak;
-    let newLastStreakDate = routine.lastStreakDate;
+    let newLastStreakWeek = routine.lastStreakWeek;
+    let newGraceUsed = routine.streakGraceUsed;
 
-    // Update streak if this is the first completion today
-    if (!routine.completedToday) {
-      if (routine.lastStreakDate === todayStr) {
-        newStreak = routine.currentStreak;
-      } else if (routine.lastStreakDate === yesterdayStr) {
+    // Check if this completion just met the weekly target
+    if (newCompletedThisWeek === target && routine.completedThisWeek < target) {
+      if (routine.lastStreakWeek === currentWeekStart) {
+        // Already counted this week
+      } else if (routine.lastStreakWeek === prevWeekStart || (routine.streakGraceUsed && routine.currentStreak > 0)) {
+        // Consecutive week or recovering from grace
         newStreak = routine.currentStreak + 1;
+        newGraceUsed = false;
+      } else if (routine.lastStreakWeek === prevWeekStart - 7 * 24 * 60 * 60 * 1000 && routine.currentStreak > 0 && !routine.streakGraceUsed) {
+        // Missed one week (grace period) - streak continues
+        newStreak = routine.currentStreak + 1;
+        newGraceUsed = true;
       } else {
+        // Fresh streak
         newStreak = 1;
+        newGraceUsed = false;
       }
       newLongest = Math.max(newStreak, routine.longestStreak);
-      newLastStreakDate = todayStr;
+      newLastStreakWeek = currentWeekStart;
     }
 
-    // Optimistic update - update state immediately
+    // Optimistic update
     setRoutines((prev) =>
       prev.map((r) =>
         r.id === id
           ? {
               ...r,
-              completedThisWeek: r.completedThisWeek + 1,
+              completedThisWeek: newCompletedThisWeek,
               completedToday: true,
               currentStreak: newStreak,
               longestStreak: newLongest,
-              lastStreakDate: newLastStreakDate,
+              lastStreakWeek: newLastStreakWeek,
+              streakGraceUsed: newGraceUsed,
               streakAtRisk: false,
             }
           : r
@@ -445,7 +456,6 @@ export default function App() {
       type: 'increment-routine',
       description: `Complete "${routine.name}"`,
       undo: () => {
-        // Restore previous state optimistically
         setRoutines((prev) =>
           prev.map((r) =>
             r.id === id
@@ -455,21 +465,41 @@ export default function App() {
                   completedToday: routine.completedToday,
                   currentStreak: routine.currentStreak,
                   longestStreak: routine.longestStreak,
-                  lastStreakDate: routine.lastStreakDate,
+                  lastStreakWeek: routine.lastStreakWeek,
+                  streakGraceUsed: routine.streakGraceUsed,
                   streakAtRisk: routine.streakAtRisk,
                 }
               : r
           )
         );
-        // Sync to DB in background
         removeLastCompletion(id, weekStart).catch(console.error);
+      },
+      redo: () => {
+        setRoutines((prev) =>
+          prev.map((r) =>
+            r.id === id
+              ? {
+                  ...r,
+                  completedThisWeek: newCompletedThisWeek,
+                  completedToday: true,
+                  currentStreak: newStreak,
+                  longestStreak: newLongest,
+                  lastStreakWeek: newLastStreakWeek,
+                  streakGraceUsed: newGraceUsed,
+                  streakAtRisk: false,
+                }
+              : r
+          )
+        );
+        addCompletion(id).catch(console.error);
+        updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(console.error);
       },
     });
 
-    // Sync to DB in background
+    // Sync to DB
     addCompletion(id).catch(console.error);
-    if (!routine.completedToday) {
-      updateRoutineStreak(id, newStreak, newLongest, newLastStreakDate).catch(console.error);
+    if (newCompletedThisWeek === target && routine.completedThisWeek < target) {
+      updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(console.error);
     }
   };
 
@@ -514,6 +544,20 @@ export default function App() {
         );
         // Sync to DB in background
         addCompletion(id).catch(console.error);
+      },
+      redo: () => {
+        setRoutines((prev) =>
+          prev.map((r) =>
+            r.id === id
+              ? {
+                  ...r,
+                  completedThisWeek: Math.max(0, r.completedThisWeek - 1),
+                  completedToday: wasCompletedToday ? false : r.completedToday,
+                }
+              : r
+          )
+        );
+        removeLastCompletion(id, weekStart).catch(console.error);
       },
     });
 
@@ -584,8 +628,21 @@ export default function App() {
     // Sync to DB in background
     addTodo(text, sectionId).then((dbTodo) => {
       realId = dbTodo.id; // Update for undo
-      // Replace temp todo with real todo from DB
-      setTodos((current) => current.map((t) => (t.id === tempId ? dbTodo : t)));
+      // Replace temp todo with real todo, preserving any local changes
+      setTodos((current) => {
+        const tempTodo = current.find(t => t.id === tempId);
+        const updated = current.map(t => t.id === tempId ? {
+          ...dbTodo,
+          order: t.order,
+          indent: t.indent,
+          text: t.text,  // Preserve local text changes
+        } : t);
+        // Sync local changes to DB if they differ
+        if (tempTodo && tempTodo.text !== dbTodo.text) {
+          updateTodo({ ...dbTodo, text: tempTodo.text }).catch(console.error);
+        }
+        return updated;
+      });
     }).catch(console.error);
   };
 
@@ -614,6 +671,19 @@ export default function App() {
     newTodos.splice(afterIndex + 1, 0, newTodo);
     setTodos(newTodos);
 
+    // Track real ID for undo (will be updated when DB responds)
+    let realId: string = tempId;
+
+    // Push undo action
+    pushUndo({
+      type: 'create-todo',
+      description: 'Create todo',
+      undo: () => {
+        setTodos((prev) => prev.filter((t) => t.id !== realId));
+        deleteTodo(realId).catch(console.error);
+      },
+    });
+
     // Focus the new todo's input
     setTimeout(() => {
       const newInput = document.querySelector(`[data-drag-id="${tempId}"] .todo-text-input`) as HTMLInputElement;
@@ -625,23 +695,34 @@ export default function App() {
 
     // Sync to DB in background
     addTodo(text, afterTodo.sectionId, indent).then(async (dbTodo) => {
-      // Check if the temp input is currently focused
+      realId = dbTodo.id;
+      // Check if the temp input is currently focused and get its ACTUAL value
+      // (not from React state, which may be stale due to debounced saves)
       const tempInput = document.querySelector(`[data-drag-id="${tempId}"] .todo-text-input`) as HTMLInputElement;
       const wasFocused = document.activeElement === tempInput;
       const cursorPos = tempInput?.selectionStart ?? 0;
+      const actualInputText = tempInput?.value ?? ''; // Read directly from DOM
 
       // Replace temp ID with real todo, preserving any local changes (order, indent, text)
       setTodos(current => {
         const tempTodo = current.find(t => t.id === tempId);
+        // Use the actual input text (from DOM) if available, otherwise fall back to state
+        const preservedText = actualInputText || tempTodo?.text || '';
+        const preservedIndent = tempTodo?.indent ?? indent;
+
         const updated = current.map(t => t.id === tempId ? {
           ...dbTodo,
           order: t.order,
-          indent: t.indent,  // Preserve local indent changes
-          text: t.text,      // Preserve local text changes
+          indent: preservedIndent,
+          text: preservedText,
         } : t);
+
         // Sync local changes to DB if they differ
-        if (tempTodo && (tempTodo.indent !== dbTodo.indent || tempTodo.text !== dbTodo.text)) {
-          updateTodo({ ...dbTodo, indent: tempTodo.indent, text: tempTodo.text }).catch(console.error);
+        if (preservedIndent !== dbTodo.indent || preservedText !== dbTodo.text) {
+          updateTodoText(dbTodo.id, preservedText).catch(console.error);
+          if (preservedIndent !== dbTodo.indent) {
+            updateTodoIndent(dbTodo.id, preservedIndent).catch(console.error);
+          }
         }
         // Reorder in background to persist positions
         reorderTodos(updated).catch(console.error);
@@ -661,45 +742,146 @@ export default function App() {
     }).catch(console.error);
   };
 
+  const handleAddTodoBefore = async (text: string, beforeTodoId: string, indent: number = 0) => {
+    const beforeTodo = todos.find((t) => t.id === beforeTodoId);
+    if (!beforeTodo) return;
+
+    const tempId = crypto.randomUUID();
+    const beforeIndex = todos.findIndex((t) => t.id === beforeTodoId);
+
+    const newTodo: Todo = {
+      id: tempId,
+      text,
+      completed: false,
+      sectionId: beforeTodo.sectionId,
+      order: beforeTodo.order - 0.5,
+      indent,
+      createdAt: Date.now(),
+      completedAt: null,
+    };
+
+    const newTodos = [...todos];
+    newTodos.splice(beforeIndex, 0, newTodo);
+    setTodos(newTodos);
+
+    let realId: string = tempId;
+
+    pushUndo({
+      type: 'create-todo',
+      description: 'Create todo',
+      undo: () => {
+        setTodos((prev) => prev.filter((t) => t.id !== realId));
+        deleteTodo(realId).catch(console.error);
+      },
+    });
+
+    setTimeout(() => {
+      const newInput = document.querySelector(`[data-drag-id="${tempId}"] .todo-text-input`) as HTMLInputElement;
+      if (newInput) {
+        newInput.focus();
+        newInput.setSelectionRange(0, 0);
+      }
+    }, 0);
+
+    addTodo(text, beforeTodo.sectionId, indent).then(async (dbTodo) => {
+      realId = dbTodo.id;
+      const tempInput = document.querySelector(`[data-drag-id="${tempId}"] .todo-text-input`) as HTMLInputElement;
+      const wasFocused = document.activeElement === tempInput;
+      const cursorPos = tempInput?.selectionStart ?? 0;
+      const actualInputText = tempInput?.value ?? '';
+
+      setTodos(current => {
+        const tempTodo = current.find(t => t.id === tempId);
+        const preservedText = actualInputText || tempTodo?.text || '';
+        const preservedIndent = tempTodo?.indent ?? indent;
+
+        const updated = current.map(t => t.id === tempId ? {
+          ...dbTodo,
+          order: t.order,
+          indent: preservedIndent,
+          text: preservedText,
+        } : t);
+
+        if (preservedIndent !== dbTodo.indent || preservedText !== dbTodo.text) {
+          updateTodoText(dbTodo.id, preservedText).catch(console.error);
+          if (preservedIndent !== dbTodo.indent) {
+            updateTodoIndent(dbTodo.id, preservedIndent).catch(console.error);
+          }
+        }
+        reorderTodos(updated).catch(console.error);
+        return updated;
+      });
+
+      if (wasFocused) {
+        setTimeout(() => {
+          const newInput = document.querySelector(`[data-drag-id="${dbTodo.id}"] .todo-text-input`) as HTMLInputElement;
+          if (newInput) {
+            newInput.focus();
+            newInput.setSelectionRange(cursorPos, cursorPos);
+          }
+        }, 0);
+      }
+    }).catch(console.error);
+  };
+
   const handleToggleTodo = (id: string) => {
     const todo = todos.find((t) => t.id === id);
     if (!todo) return;
 
     const isCompleting = !todo.completed;
+    if (isCompleting) { trackEvent('action', { action: 'todo_completed' }); trackFeatureUsed('todos'); }
     const previousTodos = [...todos]; // Save for undo
+    const completedAt = isCompleting ? Date.now() : null;
+
     const updatedTodo = {
       ...todo,
       completed: isCompleting,
-      completedAt: isCompleting ? Date.now() : null,
+      completedAt,
     };
 
-    // Update state immediately (optimistic)
+    // Calculate reordering synchronously using current todos
     let newTodos = todos.map((t) => (t.id === id ? updatedTodo : t));
+    let needsReorder = false;
 
-    // If completing and auto-sort is enabled, move to bottom of section
+    // If completing and auto-sort is enabled, move to bottom of section (only for top-level items)
     if (isCompleting && settings.autoSortCompletedTodos) {
-      // Find all todos in the same section
-      const sectionTodos = newTodos.filter((t) => t.sectionId === todo.sectionId);
-      const completedTodoIndex = sectionTodos.findIndex((t) => t.id === id);
+      const completedTodoGlobalIndex = newTodos.findIndex((t) => t.id === id);
+      const completedTodoIndent = todo.indent ?? 0;
 
-      // Only reorder if not already at the bottom of the section
-      if (completedTodoIndex !== -1 && completedTodoIndex < sectionTodos.length - 1) {
-        // Find the last todo in this section (in the full array)
+      // Only move top-level items (indent === 0) to bottom, not subtasks
+      if (completedTodoIndent === 0) {
+        // Find all child todos (indented todos directly following this one)
+        let childCount = 0;
+        for (let i = completedTodoGlobalIndex + 1; i < newTodos.length; i++) {
+          const t = newTodos[i];
+          if ((t.indent ?? 0) <= completedTodoIndent) break;
+          if (t.sectionId !== todo.sectionId) break;
+          childCount++;
+        }
+
+        // Find all todos in the same section
+        const sectionTodos = newTodos.filter((t) => t.sectionId === todo.sectionId);
         const lastSectionTodo = sectionTodos[sectionTodos.length - 1];
         const lastSectionTodoGlobalIndex = newTodos.findIndex((t) => t.id === lastSectionTodo.id);
-        const completedTodoGlobalIndex = newTodos.findIndex((t) => t.id === id);
 
-        // Remove from current position and insert after the last section todo
-        const [removed] = newTodos.splice(completedTodoGlobalIndex, 1);
-        // Adjust index since we removed an item
-        const insertIndex = completedTodoGlobalIndex < lastSectionTodoGlobalIndex
-          ? lastSectionTodoGlobalIndex
-          : lastSectionTodoGlobalIndex + 1;
-        newTodos.splice(insertIndex, 0, removed);
+        // Only reorder if not already at the bottom of the section
+        if (completedTodoGlobalIndex + childCount < lastSectionTodoGlobalIndex) {
+          const removed = newTodos.splice(completedTodoGlobalIndex, 1 + childCount);
+          const adjustedLastIndex = lastSectionTodoGlobalIndex - (1 + childCount);
+          newTodos.splice(adjustedLastIndex + 1, 0, ...removed);
+          needsReorder = true;
+        }
       }
     }
 
+    // Update state
     setTodos(newTodos);
+
+    // Sync only the completed field to DB (avoid overwriting other fields like text)
+    updateTodoCompleted(id, isCompleting, completedAt).catch(console.error);
+    if (needsReorder) {
+      reorderTodos(newTodos).catch(console.error);
+    }
 
     // Push undo action
     pushUndo({
@@ -707,18 +889,22 @@ export default function App() {
       description: `${isCompleting ? 'Complete' : 'Uncomplete'} "${todo.text.slice(0, 30)}"`,
       undo: () => {
         setTodos(previousTodos);
-        updateTodo(todo).catch(console.error);
-        if (isCompleting && settings.autoSortCompletedTodos) {
+        updateTodoCompleted(id, todo.completed, todo.completedAt ?? null).catch(console.error);
+        if (needsReorder) {
           reorderTodos(previousTodos).catch(console.error);
         }
       },
+      redo: () => {
+        setTodos((prev) => {
+          const newTodos = prev.map((t) => t.id === id ? { ...t, completed: !todo.completed, completedAt: !todo.completed ? Date.now() : null } : t);
+          if (needsReorder) {
+            reorderTodos(newTodos).catch(console.error);
+          }
+          return newTodos;
+        });
+        updateTodoCompleted(id, !todo.completed, !todo.completed ? Date.now() : null).catch(console.error);
+      },
     });
-
-    // Sync to DB in background
-    updateTodo(updatedTodo).catch(console.error);
-    if (isCompleting && settings.autoSortCompletedTodos) {
-      reorderTodos(newTodos).catch(console.error);
-    }
   };
 
   const handleDeleteTodo = (id: string) => {
@@ -760,9 +946,11 @@ export default function App() {
     const previousText = todo.text;
     if (text === previousText) return; // No change
 
-    const updatedTodo = { ...todo, text };
-    // Update state immediately (optimistic)
-    setTodos((prev) => prev.map((t) => (t.id === id ? updatedTodo : t)));
+    // Update state immediately (optimistic) - use callback to merge with current state
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text } : t)));
+
+    // Sync only the text field to DB (avoid overwriting other fields)
+    updateTodoText(id, text).catch(console.error);
 
     // Push undo action
     pushUndo({
@@ -770,23 +958,20 @@ export default function App() {
       description: `Edit "${previousText.slice(0, 20)}" → "${text.slice(0, 20)}"`,
       undo: () => {
         setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text: previousText } : t)));
-        updateTodo({ ...todo, text: previousText }).catch(console.error);
+        updateTodoText(id, previousText).catch(console.error);
       },
     });
-
-    // Sync to DB in background
-    updateTodo(updatedTodo).catch(console.error);
   };
 
   const handleIndentTodo = (id: string, indent: number) => {
     const todo = todos.find((t) => t.id === id);
     if (!todo) return;
 
-    const updatedTodo = { ...todo, indent };
-    // Update state immediately (optimistic)
-    setTodos((prev) => prev.map((t) => (t.id === id ? updatedTodo : t)));
-    // Sync to DB in background
-    updateTodo(updatedTodo).catch(console.error);
+    // Update state immediately (optimistic) - use callback to merge with current state
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, indent } : t)));
+
+    // Sync only the indent field to DB (avoid overwriting other fields like text)
+    updateTodoIndent(id, indent).catch(console.error);
   };
 
   const handleReorderTodos = (reorderedTodos: Todo[]) => {
@@ -799,15 +984,16 @@ export default function App() {
     const todo = todos.find((t) => t.id === id);
     if (!todo) return;
 
-    const updatedTodo = { ...todo, sectionId: newSectionId };
     // Update state immediately (optimistic)
-    setTodos((prev) => prev.map((t) => (t.id === id ? updatedTodo : t)));
-    // Sync to DB in background
-    updateTodo(updatedTodo).catch(console.error);
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, sectionId: newSectionId } : t)));
+
+    // Sync only the section field to DB (avoid overwriting other fields like text)
+    updateTodoSection(id, newSectionId).catch(console.error);
   };
 
   // Section handlers
   const handleAddSection = async (name: string) => {
+    trackEvent('action', { action: 'section_created', name }); trackFeatureUsed('todos');
     await withSaveStatus(async () => {
       await addSection(name);
       await loadData();
@@ -903,31 +1089,6 @@ export default function App() {
     ]).catch(console.error);
   };
 
-  // Life Goal handlers
-  const handleAddLifeGoal = async (title: string) => {
-    await addLifeGoal(title);
-    loadData();
-  };
-
-  const handleDeleteLifeGoal = async (id: string) => {
-    if (confirm('Delete this goal?')) {
-      await deleteLifeGoal(id);
-      loadData();
-    }
-  };
-
-  const handleEditLifeGoal = async (id: string, updates: { title?: string; description?: string }) => {
-    const goal = lifeGoals.find((g) => g.id === id);
-    if (goal) {
-      await updateLifeGoal({ ...goal, ...updates });
-      loadData();
-    }
-  };
-
-  const handleReorderLifeGoals = async (reorderedGoals: Goal[]) => {
-    setLifeGoals(reorderedGoals);
-    await reorderLifeGoals(reorderedGoals);
-  };
 
   // Yearly Goal handlers (2026)
   const handleAddYearlyGoal = async (title: string) => {
@@ -986,13 +1147,41 @@ export default function App() {
 
   // Journal handlers
   const handleSaveJournalEntry = async (entry: Partial<JournalEntry> & { date: string }) => {
+    trackEvent('action', { action: 'journal_saved' }); trackFeatureUsed('journal');
     // Just save to DB - don't update parent state or call loadData()
     // The JournalEntryEditor manages its own local state to avoid race conditions
     await createOrUpdateJournalEntry(entry);
   };
 
+  const handleSaveMonthlyReflection = async (reflection: Partial<MonthlyReflection> & { month: string }) => {
+    trackEvent('action', { action: 'reflection_saved' }); trackFeatureUsed('reflection');
+    const saved = await createOrUpdateMonthlyReflection(reflection);
+    setCurrentMonthlyReflection(saved);
+    setMonthlyReflections((prev) => {
+      const idx = prev.findIndex((r) => r.month === saved.month);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = saved;
+        return updated;
+      }
+      return [saved, ...prev];
+    });
+  };
+
+  const handleChangeReflectionMonth = async (month: string) => {
+    setMonthlyReflectionMonth(month);
+    const existing = monthlyReflections.find((r) => r.month === month);
+    if (existing) {
+      setCurrentMonthlyReflection(existing);
+    } else {
+      const fetched = await getMonthlyReflection(month);
+      setCurrentMonthlyReflection(fetched || null);
+    }
+  };
+
   // Reading notes handlers
   const handleAddNote = async (source: string, content: string) => {
+    trackEvent('action', { action: 'note_added' }); trackFeatureUsed('reading_notes');
     await addReadingNote(source, content);
     loadData();
   };
@@ -1035,14 +1224,10 @@ export default function App() {
     setCookieJarContent(content);
   };
 
-  // Finances handler
-  const handleSaveFinances = async (content: string) => {
-    await saveFinancesContent(content);
-    setFinancesContent(content);
-  };
 
   // Quick Notes handler
   const handleSaveQuickNotes = async (content: string) => {
+    trackFeatureUsed('quick_thoughts');
     await saveQuickNotesContent(content);
     setQuickNotesContent(content);
   };
@@ -1113,7 +1298,7 @@ export default function App() {
       routines={routines}
       journalEntries={allJournalEntries}
       friends={friends}
-      onNavigateToSettings={() => setCurrentPage('settings')}
+      onNavigateToSettings={() => { setCurrentPage('settings'); trackFeatureUsed('settings'); }}
     />
   );
 
@@ -1122,7 +1307,7 @@ export default function App() {
       <div className="app">
         <JournalPage
           entries={allJournalEntries}
-          onBack={() => setCurrentPage('dashboard')}
+          onBack={() => { setCurrentPage('dashboard'); }}
           onSave={handleSaveJournalEntry}
         />
         {aiChatComponent}
@@ -1136,7 +1321,7 @@ export default function App() {
         <FriendsPage
           friends={friends}
           sections={friendsSections}
-          onBack={() => setCurrentPage('dashboard')}
+          onBack={() => { setCurrentPage('dashboard'); }}
           onAddFriend={handleAddFriend}
           onEditFriend={handleEditFriend}
           onDeleteFriend={handleDeleteFriend}
@@ -1159,17 +1344,52 @@ export default function App() {
             await backfillStreaks();
             loadData();
           }}
-          onBack={() => setCurrentPage('dashboard')}
+          onBack={() => { setCurrentPage('dashboard'); }}
+          onOpenMonthlyReflection={() => {
+            const now = new Date();
+            const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+            setMonthlyReflectionMonth(prevMonthStr);
+            const r = monthlyReflections.find((r) => r.month === prevMonthStr);
+            setCurrentMonthlyReflection(r || null);
+            setShowMonthlyReflection(true);
+          }}
         />
         {aiChatComponent}
+      {showMonthlyReflection && (
+        <MonthlyReflectionModal
+          reflection={currentMonthlyReflection}
+          month={monthlyReflectionMonth}
+          onSave={handleSaveMonthlyReflection}
+          onClose={() => {
+            setShowMonthlyReflection(false);
+            if (monthlyReflectionMonth) {
+              localStorage.setItem(`monthlyReflectionDismissed-${monthlyReflectionMonth}`, 'true');
+            }
+          }}
+          onChangeMonth={handleChangeReflectionMonth}
+        />
+      )}
       </div>
     );
   }
 
   return (
     <div className="app">
+      {showSleepModal && (
+        <div className="sleep-modal-overlay">
+          <div className="sleep-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="sleep-modal-emoji">😴</div>
+            <h2>It’s past midnight!</h2>
+            <p>Go to sleep. Tomorrow you’ll be sharper, more creative, and more productive.</p>
+            <button className="sleep-modal-btn" onClick={() => { setShowSleepModal(false); setTimeout(() => setShowSleepModal(true), 5 * 60 * 1000); }}>
+              Dismiss for 5 min
+            </button>
+          </div>
+        </div>
+      )}
       <header>
-        <h1>Command Center</h1>
+        <h1>{settings.firstName ? `${settings.firstName}'s HQ` : 'HQ'}</h1>
         <p className="week-range">{formatWeekRange(weekStart)}</p>
         {saveStatus !== 'idle' && (
           <span className={`save-status ${saveStatus}`}>
@@ -1177,13 +1397,7 @@ export default function App() {
           </span>
         )}
         <div className="header-buttons">
-          <button className="focus-btn" onClick={collapseAllExceptTodos} title="Focus Mode - Collapse all except To-Dos">
-            Focus
-          </button>
-          <button className="expand-btn" onClick={expandAllSections} title="Expand all sections">
-            Expand All
-          </button>
-          <button className="settings-btn" onClick={() => setCurrentPage('settings')} title="Settings">
+<button className="settings-btn" onClick={() => setCurrentPage('settings')}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
               <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
             </svg>
@@ -1191,22 +1405,33 @@ export default function App() {
         </div>
       </header>
 
-      <section className="app-section collapsible-section">
-        <h2
-          className="collapsible-header"
-          onClick={() => toggleSectionCollapsed('dailySummary')}
-        >
-          <span className={`collapse-arrow ${collapsedSections.dailySummary ? '' : 'open'}`}>▶</span>
-          Today's Focus
-        </h2>
-        {!collapsedSections.dailySummary && (
-          <DailySummaryCard
-            todos={todos}
-            sections={sections}
-            routines={routines}
-          />
-        )}
-      </section>
+      {dashboardStats && (
+        <div className="dashboard-stats-banner">
+          <div className="dashboard-stat-card" data-tooltip="Consecutive days you've completed a todo, routine, or journal entry">
+            <span className="dashboard-stat-icon">🔥</span>
+            <span className="dashboard-stat-value">{dashboardStats.dayStreak}</span>
+            <span className="dashboard-stat-label">day streak</span>
+          </div>
+          <div className="dashboard-stat-card" data-tooltip="Todos checked off since Monday">
+            <span className="dashboard-stat-icon">✓</span>
+            <span className="dashboard-stat-value">{dashboardStats.todosCompletedThisWeek}</span>
+            <span className="dashboard-stat-label">this week</span>
+          </div>
+          {dashboardStats.bestRoutineStreak > 0 && (
+            <div className="dashboard-stat-card" data-tooltip={`${dashboardStats.bestRoutineStreak}-week streak for ${dashboardStats.bestRoutineStreakName} (your longest active routine streak)`}>
+              <span className="dashboard-stat-icon">📅</span>
+              <span className="dashboard-stat-value">{dashboardStats.bestRoutineStreak}</span>
+              <span className="dashboard-stat-label">wk streak</span>
+            </div>
+          )}
+          <div className="dashboard-stat-card" data-tooltip="Days since you started using HQ">
+            <span className="dashboard-stat-icon">⚡</span>
+            <span className="dashboard-stat-value">{dashboardStats.daysOnPlatform}</span>
+            <span className="dashboard-stat-label">days</span>
+          </div>
+        </div>
+      )}
+
 
       <section className="app-section quick-notes-section collapsible-section">
         <h2
@@ -1223,6 +1448,44 @@ export default function App() {
           />
         )}
       </section>
+
+      {(() => {
+          const now = new Date();
+          const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+          const existing = monthlyReflections.find((r) => r.month === prevMonthStr);
+          const isComplete = existing
+            && existing.overall && existing.challenges && existing.lookingForward
+            && existing.ratingOverall && existing.ratingHealth && existing.ratingCareer
+            && existing.ratingFinances && existing.ratingFriends && existing.ratingFamily
+            && existing.ratingRomance && existing.ratingFun && existing.ratingGrowth
+            && existing.ratingMentalHealth && existing.ratingSpirituality
+            && existing.ratingEnvironment && existing.ratingProductivity;
+          const monthName = prevMonth.toLocaleDateString('en-US', { month: 'long' });
+          const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
+          const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`);
+          if (dismissed) return null;
+          return (
+            <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isFirstSunday && !isComplete ? 'urgent' : ''}`}>
+              <span className="monthly-reflection-banner-text">
+                {isComplete ? `${monthName} reflection` : `Monthly reflection for ${monthName}`}
+                {isComplete && <span className="monthly-reflection-check"> ✓</span>}
+              </span>
+              <div className="monthly-reflection-banner-actions">
+                <button onClick={() => {
+                  setMonthlyReflectionMonth(prevMonthStr);
+                  const r = monthlyReflections.find((r) => r.month === prevMonthStr);
+                  setCurrentMonthlyReflection(r || null);
+                  setShowMonthlyReflection(true);
+                }}>{isComplete ? 'Review' : 'Open'}</button>
+                <button className="monthly-reflection-dismiss" onClick={() => {
+                    localStorage.setItem(`monthlyReflectionDismissed-${prevMonthStr}`, 'true');
+                    setMonthlyReflectionMonth('');
+                  }}>Dismiss (find in Settings)</button>
+              </div>
+            </div>
+          );
+        })()}
 
       <main>
         <div className="column">
@@ -1264,6 +1527,7 @@ export default function App() {
                 onIndentTodo={handleIndentTodo}
                 onAddTodo={handleAddTodo}
                 onAddTodoAfter={handleAddTodoAfter}
+                onAddTodoBefore={handleAddTodoBefore}
                 onMoveTodo={handleMoveTodo}
                 onReorderTodos={handleReorderTodos}
                 onToggleSection={handleToggleSection}
@@ -1324,18 +1588,16 @@ export default function App() {
               Routines
             </h2>
             {!collapsedSections.routines && (
-              <>
-                <AddRoutineForm onAdd={handleAddRoutine} />
-                <RoutineList
-                  routines={routines}
-                  onIncrement={handleIncrement}
-                  onDecrement={handleDecrement}
-                  onDelete={handleDeleteRoutine}
-                  onEdit={handleEditRoutine}
-                  onReorder={handleReorderRoutines}
-                  confettiEnabled={settings.confettiEnabled}
-                />
-              </>
+              <RoutineList
+                routines={routines}
+                onIncrement={handleIncrement}
+                onDecrement={handleDecrement}
+                onDelete={handleDeleteRoutine}
+                onEdit={handleEditRoutine}
+                onReorder={handleReorderRoutines}
+                onAdd={handleAddRoutine}
+                confettiEnabled={settings.confettiEnabled}
+              />
             )}
           </section>
 
@@ -1422,46 +1684,6 @@ export default function App() {
           <section className="app-section collapsible-section">
             <h2
               className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('lifeGoals')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.lifeGoals ? '' : 'open'}`}>▶</span>
-              {editingGoalSection === 'lifeGoals' ? (
-                <input
-                  type="text"
-                  className="goal-section-title-input"
-                  value={editingGoalSectionValue}
-                  onChange={(e) => setEditingGoalSectionValue(e.target.value)}
-                  onBlur={saveGoalSectionTitle}
-                  onKeyDown={handleGoalSectionKeyDown}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
-                />
-              ) : (
-                <span
-                  className="goal-section-title"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startEditingGoalSection('lifeGoals');
-                  }}
-                >
-                  {goalSectionTitles.lifeGoals}
-                </span>
-              )}
-            </h2>
-            {!collapsedSections.lifeGoals && (
-              <GoalList
-                goals={lifeGoals}
-                onDelete={handleDeleteLifeGoal}
-                onEdit={handleEditLifeGoal}
-                onReorder={handleReorderLifeGoals}
-                onAdd={handleAddLifeGoal}
-              />
-            )}
-          </section>
-
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
               onClick={() => toggleSectionCollapsed('closeFriends')}
             >
               <span className={`collapse-arrow ${collapsedSections.closeFriends ? '' : 'open'}`}>▶</span>
@@ -1491,22 +1713,30 @@ export default function App() {
             )}
           </section>
 
-          <section className="app-section">
-            <FinancesCard
-              content={financesContent}
-              onSave={handleSaveFinances}
-              isReviewTime={isFirstWeekendOfMonth()}
-            />
-          </section>
         </div>
       </main>
+
+      {showMonthlyReflection && (
+        <MonthlyReflectionModal
+          reflection={currentMonthlyReflection}
+          month={monthlyReflectionMonth}
+          onSave={handleSaveMonthlyReflection}
+          onClose={() => {
+            setShowMonthlyReflection(false);
+            if (monthlyReflectionMonth) {
+              localStorage.setItem(`monthlyReflectionDismissed-${monthlyReflectionMonth}`, 'true');
+            }
+          }}
+          onChangeMonth={handleChangeReflectionMonth}
+        />
+      )}
 
       {showJournalEditor && (
         <JournalEntryEditor
           entry={todayJournal}
           date={getTodayDate()}
           onSave={handleSaveJournalEntry}
-          onClose={() => setShowJournalEditor(false)}
+          onClose={async () => { setShowJournalEditor(false); const updated = await getTodayJournalEntry(); setTodayJournal(updated ?? null); }}
         />
       )}
 

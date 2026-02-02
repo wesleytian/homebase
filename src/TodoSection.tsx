@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Todo, ToggleSection } from './types';
 import { TodoItem, DropPosition } from './TodoItem';
 
@@ -42,6 +42,7 @@ interface Props {
   onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string) => void;
   onAddTodoAfter: (text: string, afterTodoId: string, indent?: number) => void;
+  onAddTodoBefore: (text: string, beforeTodoId: string, indent?: number) => void;
   onTodoDragStart: (e: React.DragEvent, id: string) => void;
   onTodoDragOver: (e: React.DragEvent, id: string) => void;
   onTodoDragLeave: () => void;
@@ -50,6 +51,7 @@ interface Props {
   onSectionDragOver: (e: React.DragEvent, id: string) => void;
   onSectionDrop: (e: React.DragEvent, id: string) => void;
   onDropOnSection: (e: React.DragEvent, sectionId: string) => void;
+  onDropAtEndOfSection: (e: React.DragEvent, sectionId: string) => void;
   onMoveToToday: (sectionId: string) => void;
   dragState: DragState;
   selectedIds?: Set<string>;
@@ -72,6 +74,7 @@ export function TodoSection({
   onIndentTodo,
   onAddTodo,
   onAddTodoAfter,
+  onAddTodoBefore,
   onTodoDragStart,
   onTodoDragOver,
   onTodoDragLeave,
@@ -80,6 +83,7 @@ export function TodoSection({
   onSectionDragOver,
   onSectionDrop,
   onDropOnSection,
+  onDropAtEndOfSection,
   onMoveToToday,
   dragState,
   selectedIds,
@@ -93,6 +97,19 @@ export function TodoSection({
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(section.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [countFlash, setCountFlash] = useState(false);
+  const completedCount = useMemo(() => todos.filter(t => t.completed).length, [todos]);
+  const prevCompletedRef = useRef(completedCount);
+
+  useEffect(() => {
+    if (completedCount > prevCompletedRef.current) {
+      setCountFlash(true);
+      const t = setTimeout(() => setCountFlash(false), 600);
+      prevCompletedRef.current = completedCount;
+      return () => clearTimeout(t);
+    }
+    prevCompletedRef.current = completedCount;
+  }, [completedCount]);
   const deleteConfirmRef = useRef<HTMLDivElement>(null);
   const wasDraggingRef = useRef(false);
 
@@ -209,11 +226,11 @@ export function TodoSection({
             {section.name}
           </span>
         )}
-        <span className="section-count">{todos.length}</span>
+        <span className={'section-count' + (countFlash ? ' count-flash' : '')}>{todos.filter(t => t.completed).length}/{todos.length}</span>
         {isDateSection(section.name) && section.name !== getTodayFormatted() && todos.some(t => !t.completed) && (
           <button
             className="section-move-today"
-            title="Move unfinished to today"
+            data-tooltip="Move unfinished to today"
             onClick={(e) => {
               e.stopPropagation();
               onMoveToToday(section.id);
@@ -258,6 +275,7 @@ export function TodoSection({
               onEdit={onEditTodo}
               onIndent={onIndentTodo}
               onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
+              onCreateAbove={(id, indent) => onAddTodoBefore('', id, indent)}
               onDeleteAndFocusAbove={index > 0 ? (id) => {
                 const prevTodo = todos[index - 1];
                 onDeleteTodo(id);
@@ -286,6 +304,26 @@ export function TodoSection({
               onTouchEnd={onTodoTouchEnd}
             />
           ))}
+          <div
+            className={`section-drop-zone ${todoHovering ? 'active' : ''}`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              if (dragState.type === 'todo') {
+                e.dataTransfer.dropEffect = 'move';
+                setTodoHovering(true);
+              }
+            }}
+            onDragLeave={() => setTodoHovering(false)}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setTodoHovering(false);
+              if (dragState.type === 'todo') {
+                onDropAtEndOfSection(e, section.id);
+              }
+            }}
+          />
           <form className="section-add-form" onSubmit={handleAdd}>
               <input
                 type="text"
