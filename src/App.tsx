@@ -1392,7 +1392,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         </div>
       )}
       <header>
-        <h1><span style={{ fontSize: '1.3em', marginRight: '0.5rem' }}>🏠</span>{settings.firstName ? `${settings.firstName}'s Homebase` : 'Homebase'}</h1>
+        <h1><span style={{ fontSize: '1.3em', marginRight: '0.5rem' }}>🏡</span>{settings.firstName ? `${settings.firstName}'s Homebase` : 'Homebase'}</h1>
         <p className="week-range">{formatWeekRange(weekStart)}</p>
         {saveStatus !== 'idle' && (
           <span className={`save-status ${saveStatus}`}>
