@@ -516,7 +516,7 @@ main {
 
 .todo-text-input {
   flex: 1;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   padding: 2px 0;
   border: none;
   outline: none;
@@ -538,7 +538,7 @@ main {
 
 .todo-editable {
   flex: 1;
-  font-size: 0.9rem;
+  font-size: 0.82rem;
   padding: 2px 0;
   border: none;
   outline: none;
