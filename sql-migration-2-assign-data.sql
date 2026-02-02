@@ -1,29 +1,25 @@
--- SQL Script #2: Migrate existing data to your account
--- Run this AFTER you log in with Google for the first time
+-- SQL Script #2: Migrate existing data to Wesley's account
+-- Run this in Supabase SQL Editor
 
--- First, find your auth UUID by running:
--- SELECT id, email FROM auth.users WHERE email = 'you@example.com';
+-- Assign all existing rows to Wesley
+UPDATE routines SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE completions SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE todos SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE sections SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE life_goals SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE yearly_goals SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE quarterly_goals SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE journal_entries SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE reading_notes SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE friends SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE friend_connections SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE cookie_jar SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE quick_notes SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE user_settings SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE monthly_reflections SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+UPDATE analytics_events SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
 
--- Then replace <YOUR_UUID> below with the result and run:
-
-UPDATE routines SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE completions SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE todos SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE sections SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE life_goals SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE yearly_goals SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE quarterly_goals SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE journal_entries SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE reading_notes SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE friends SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE friend_connections SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE cookie_jar SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE quick_notes SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE user_settings SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE monthly_reflections SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-UPDATE analytics_events SET user_id = '<YOUR_UUID>' WHERE user_id IS NULL;
-
--- After migration, make user_id NOT NULL:
+-- Make user_id NOT NULL on all tables
 ALTER TABLE routines ALTER COLUMN user_id SET NOT NULL;
 ALTER TABLE completions ALTER COLUMN user_id SET NOT NULL;
 ALTER TABLE todos ALTER COLUMN user_id SET NOT NULL;
@@ -41,7 +37,7 @@ ALTER TABLE user_settings ALTER COLUMN user_id SET NOT NULL;
 ALTER TABLE monthly_reflections ALTER COLUMN user_id SET NOT NULL;
 ALTER TABLE analytics_events ALTER COLUMN user_id SET NOT NULL;
 
--- Tighten RLS policies (remove "unassigned" access):
+-- Tighten RLS policies (remove unassigned access)
 DROP POLICY IF EXISTS "Users see own or unassigned" ON routines;
 DROP POLICY IF EXISTS "Users update own or unassigned" ON routines;
 DROP POLICY IF EXISTS "Users delete own or unassigned" ON routines;

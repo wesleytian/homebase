@@ -105,5 +105,5 @@ CREATE POLICY "Users update own or unassigned" ON analytics_events FOR UPDATE US
 CREATE POLICY "Users delete own or unassigned" ON analytics_events FOR DELETE USING (auth.uid() = user_id OR user_id IS NULL);
 
 -- Step 4: Update unique constraints for per-user uniqueness
-DROP INDEX IF EXISTS journal_entries_date_key;
-CREATE UNIQUE INDEX IF NOT EXISTS journal_entries_user_date ON journal_entries(user_id, date);
+ALTER TABLE journal_entries DROP CONSTRAINT journal_entries_date_key;                                                    
+  CREATE UNIQUE INDEX journal_entries_user_date ON journal_entries(user_id, date);
