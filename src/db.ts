@@ -1,6 +1,22 @@
 import { supabase } from './supabase';
 import { Routine, Completion, Todo, ToggleSection, Goal, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendConnection } from './types';
 
+// Current user ID - set by AuthContext on login
+let currentUserId: string | null = null;
+
+export function setCurrentUserId(id: string | null) {
+  currentUserId = id;
+}
+
+export function getCurrentUserId(): string | null {
+  return currentUserId;
+}
+
+function requireUserId(): string {
+  if (!currentUserId) throw new Error('Not authenticated');
+  return currentUserId;
+}
+
 // Helper to convert snake_case to camelCase
 function toCamel<T>(row: Record<string, unknown>): T {
   const result: Record<string, unknown> = {};
@@ -24,14 +40,15 @@ export function getWeekStart(date: Date = new Date()): number {
 
 // Routines
 export async function getAllRoutines(): Promise<Routine[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('routines')
     .select('*')
+    .eq('user_id', userId)
     .order('order', { ascending: true });
   if (error) throw error;
   return (data || []).map((r) => {
     const routine = toCamel<Routine>(r);
-    // Provide defaults for streak fields (for backwards compatibility)
     return {
       ...routine,
       currentStreak: routine.currentStreak ?? 0,
@@ -43,7 +60,8 @@ export async function getAllRoutines(): Promise<Routine[]> {
 }
 
 export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'createdAt' | 'currentStreak' | 'longestStreak' | 'lastStreakWeek' | 'streakGraceUsed'>): Promise<Routine> {
-  const { data: existing } = await supabase.from('routines').select('order').order('order', { ascending: false }).limit(1);
+  const userId = requireUserId();
+  const { data: existing } = await supabase.from('routines').select('order').eq('user_id', userId).order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
   const { data, error } = await supabase
@@ -57,6 +75,7 @@ export async function addRoutine(routine: Omit<Routine, 'id' | 'order' | 'create
       current_streak: 0,
       longest_streak: 0,
       last_streak_date: null,
+      user_id: userId,
     })
     .select()
     .single();
@@ -109,18 +128,22 @@ export async function reorderRoutines(routines: Routine[]): Promise<void> {
 
 // Completions
 export async function getCompletionsForWeek(weekStart: number): Promise<Completion[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('completions')
     .select('*')
+    .eq('user_id', userId)
     .eq('week_start', weekStart);
   if (error) throw error;
   return (data || []).map((c) => toCamel<Completion>(c));
 }
 
 export async function getAllCompletions(): Promise<Completion[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('completions')
     .select('*')
+    .eq('user_id', userId)
     .order('completed_at', { ascending: true });
   if (error) throw error;
   return (data || []).map((c) => toCamel<Completion>(c));
@@ -133,7 +156,6 @@ export async function backfillStreaks(): Promise<void> {
     getAllCompletions(),
   ]);
 
-  // Group completions by routine
   const completionsByRoutine = new Map<string, number[]>();
   for (const c of completions) {
     if (!completionsByRoutine.has(c.routineId)) {
@@ -142,49 +164,41 @@ export async function backfillStreaks(): Promise<void> {
     completionsByRoutine.get(c.routineId)!.push(c.completedAt);
   }
 
-  // Calculate weekly streaks for each routine
   for (const routine of routines) {
     const timestamps = completionsByRoutine.get(routine.id) || [];
     if (timestamps.length === 0) continue;
 
-    // Group completions by week (using getWeekStart)
     const countByWeek = new Map<number, number>();
     for (const ts of timestamps) {
       const ws = getWeekStart(new Date(ts));
       countByWeek.set(ws, (countByWeek.get(ws) || 0) + 1);
     }
 
-    // Sort weeks descending
     const target = routine.frequencyPerWeek;
     const currentWeekStart = getWeekStart();
     const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
 
-    // Count current streak backwards, with 1-week grace
     let currentStreak = 0;
     let lastStreakWeek: number | null = null;
     let graceUsed = false;
     let checkWeek = currentWeekStart;
 
-    // Current week is in progress, so check if target is already met
     const currentWeekCount = countByWeek.get(currentWeekStart) || 0;
     if (currentWeekCount >= target) {
       currentStreak = 1;
       lastStreakWeek = currentWeekStart;
       checkWeek = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
     } else {
-      // Current week not met yet, start from previous week
       checkWeek = prevWeekStart;
     }
 
-    // Walk backwards through weeks
     while (true) {
       const count = countByWeek.get(checkWeek) || 0;
       if (count >= target) {
         currentStreak++;
         if (!lastStreakWeek) lastStreakWeek = checkWeek;
-        graceUsed = false; // Reset grace if this week was met
+        graceUsed = false;
       } else if (!graceUsed && currentStreak > 0) {
-        // Grace period: skip one missed week
         graceUsed = true;
       } else {
         break;
@@ -192,9 +206,7 @@ export async function backfillStreaks(): Promise<void> {
       checkWeek -= 7 * 24 * 60 * 60 * 1000;
     }
 
-    // Calculate longest streak ever (with grace)
     let longestStreak = currentStreak;
-    // Sort weeks ascending for longest calculation
     const ascWeeks = Array.from(countByWeek.keys()).sort((a, b) => a - b);
     let tempStreak = 0;
     let tempGrace = false;
@@ -214,7 +226,7 @@ export async function backfillStreaks(): Promise<void> {
         }
         longestStreak = Math.max(longestStreak, tempStreak);
       } else if (isConsecutive && !tempGrace && tempStreak > 0) {
-        tempGrace = true; // grace
+        tempGrace = true;
       } else {
         tempStreak = 0;
         tempGrace = false;
@@ -226,6 +238,7 @@ export async function backfillStreaks(): Promise<void> {
 }
 
 export async function addCompletion(routineId: string): Promise<Completion> {
+  const userId = requireUserId();
   const weekStart = getWeekStart();
   const { data, error } = await supabase
     .from('completions')
@@ -233,6 +246,7 @@ export async function addCompletion(routineId: string): Promise<Completion> {
       routine_id: routineId,
       completed_at: Date.now(),
       week_start: weekStart,
+      user_id: userId,
     })
     .select()
     .single();
@@ -241,9 +255,11 @@ export async function addCompletion(routineId: string): Promise<Completion> {
 }
 
 export async function removeLastCompletion(routineId: string, weekStart: number): Promise<void> {
+  const userId = requireUserId();
   const { data } = await supabase
     .from('completions')
     .select('id')
+    .eq('user_id', userId)
     .eq('routine_id', routineId)
     .eq('week_start', weekStart)
     .order('completed_at', { ascending: false })
@@ -256,16 +272,19 @@ export async function removeLastCompletion(routineId: string, weekStart: number)
 
 // Todos
 export async function getAllTodos(): Promise<Todo[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('todos')
     .select('*')
+    .eq('user_id', userId)
     .order('order', { ascending: true });
   if (error) throw error;
   return (data || []).map((t) => toCamel<Todo>(t));
 }
 
 export async function addTodo(text: string, sectionId: string | null = null, indent: number = 0): Promise<Todo> {
-  const { data: existing } = await supabase.from('todos').select('order').order('order', { ascending: false }).limit(1);
+  const userId = requireUserId();
+  const { data: existing } = await supabase.from('todos').select('order').eq('user_id', userId).order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
   const { data, error } = await supabase
@@ -277,6 +296,7 @@ export async function addTodo(text: string, sectionId: string | null = null, ind
       order: maxOrder + 1,
       indent: indent,
       created_at: Date.now(),
+      user_id: userId,
     })
     .select()
     .single();
@@ -293,7 +313,6 @@ export async function updateTodo(todo: Todo): Promise<void> {
     indent: todo.indent ?? 0,
   };
 
-  // Only include completed_at if it's set (column may not exist yet)
   if (todo.completedAt !== undefined) {
     updateData.completed_at = todo.completedAt;
   }
@@ -303,13 +322,11 @@ export async function updateTodo(todo: Todo): Promise<void> {
     .update(updateData)
     .eq('id', todo.id);
 
-  // Ignore error if it's about the completed_at column not existing
   if (error && !error.message?.includes('completed_at')) {
     throw error;
   }
 }
 
-// Specific update functions to avoid overwriting other fields
 export async function updateTodoText(id: string, text: string): Promise<void> {
   const { error } = await supabase
     .from('todos')
@@ -361,19 +378,22 @@ export async function reorderTodos(todos: Todo[]): Promise<void> {
 
 // Sections
 export async function getAllSections(): Promise<ToggleSection[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('sections')
     .select('*')
+    .eq('user_id', userId)
     .order('order', { ascending: true });
   if (error) throw error;
   return (data || []).map((s) => toCamel<ToggleSection>(s));
 }
 
 export async function addSection(name: string): Promise<ToggleSection> {
-  // Check if section with this name already exists
+  const userId = requireUserId();
   const { data: existingSection } = await supabase
     .from('sections')
     .select('*')
+    .eq('user_id', userId)
     .eq('name', name)
     .single();
 
@@ -381,8 +401,7 @@ export async function addSection(name: string): Promise<ToggleSection> {
     return toCamel<ToggleSection>(existingSection);
   }
 
-  // Shift existing sections
-  const { data: existing } = await supabase.from('sections').select('id, order');
+  const { data: existing } = await supabase.from('sections').select('id, order').eq('user_id', userId);
   if (existing) {
     for (const s of existing) {
       await supabase.from('sections').update({ order: s.order + 1 }).eq('id', s.id);
@@ -396,6 +415,7 @@ export async function addSection(name: string): Promise<ToggleSection> {
       collapsed: false,
       order: 0,
       created_at: Date.now(),
+      user_id: userId,
     })
     .select()
     .single();
@@ -416,7 +436,6 @@ export async function updateSection(section: ToggleSection): Promise<void> {
 }
 
 export async function deleteSection(id: string): Promise<void> {
-  // Move todos to unsectioned
   await supabase.from('todos').update({ section_id: null }).eq('section_id', id);
   const { error } = await supabase.from('sections').delete().eq('id', id);
   if (error) throw error;
@@ -430,21 +449,24 @@ export async function reorderSections(sections: ToggleSection[]): Promise<void> 
 
 // Life Goals
 export async function getAllLifeGoals(): Promise<Goal[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('life_goals')
     .select('*')
+    .eq('user_id', userId)
     .order('order', { ascending: true });
   if (error) throw error;
   return (data || []).map((g) => toCamel<Goal>(g));
 }
 
 export async function addLifeGoal(title: string, description: string = ''): Promise<Goal> {
-  const { data: existing } = await supabase.from('life_goals').select('order').order('order', { ascending: false }).limit(1);
+  const userId = requireUserId();
+  const { data: existing } = await supabase.from('life_goals').select('order').eq('user_id', userId).order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
   const { data, error } = await supabase
     .from('life_goals')
-    .insert({ title, description, order: maxOrder + 1, created_at: Date.now() })
+    .insert({ title, description, order: maxOrder + 1, created_at: Date.now(), user_id: userId })
     .select()
     .single();
   if (error) throw error;
@@ -472,21 +494,24 @@ export async function reorderLifeGoals(goals: Goal[]): Promise<void> {
 
 // Yearly Goals
 export async function getAllYearlyGoals(): Promise<Goal[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('yearly_goals')
     .select('*')
+    .eq('user_id', userId)
     .order('order', { ascending: true });
   if (error) throw error;
   return (data || []).map((g) => toCamel<Goal>(g));
 }
 
 export async function addYearlyGoal(title: string, description: string = ''): Promise<Goal> {
-  const { data: existing } = await supabase.from('yearly_goals').select('order').order('order', { ascending: false }).limit(1);
+  const userId = requireUserId();
+  const { data: existing } = await supabase.from('yearly_goals').select('order').eq('user_id', userId).order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
   const { data, error } = await supabase
     .from('yearly_goals')
-    .insert({ title, description, order: maxOrder + 1, created_at: Date.now() })
+    .insert({ title, description, order: maxOrder + 1, created_at: Date.now(), user_id: userId })
     .select()
     .single();
   if (error) throw error;
@@ -514,9 +539,11 @@ export async function reorderYearlyGoals(goals: Goal[]): Promise<void> {
 
 // Quarterly Goals
 export async function getAllQuarterlyGoals(): Promise<Goal[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('quarterly_goals')
     .select('*')
+    .eq('user_id', userId)
     .order('order', { ascending: true });
   if (error) throw error;
   return (data || []).map((g) => ({
@@ -526,12 +553,13 @@ export async function getAllQuarterlyGoals(): Promise<Goal[]> {
 }
 
 export async function addQuarterlyGoal(title: string, description: string = ''): Promise<Goal> {
-  const { data: existing } = await supabase.from('quarterly_goals').select('order').order('order', { ascending: false }).limit(1);
+  const userId = requireUserId();
+  const { data: existing } = await supabase.from('quarterly_goals').select('order').eq('user_id', userId).order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
   const { data, error } = await supabase
     .from('quarterly_goals')
-    .insert({ title, description, subtasks: [], order: maxOrder + 1, created_at: Date.now() })
+    .insert({ title, description, subtasks: [], order: maxOrder + 1, created_at: Date.now(), user_id: userId })
     .select()
     .single();
   if (error) throw error;
@@ -564,18 +592,22 @@ export function getTodayDate(): string {
 }
 
 export async function getAllJournalEntries(): Promise<JournalEntry[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('journal_entries')
     .select('*')
+    .eq('user_id', userId)
     .order('date', { ascending: false });
   if (error) throw error;
   return (data || []).map((e) => toCamel<JournalEntry>(e));
 }
 
 export async function getJournalEntryByDate(date: string): Promise<JournalEntry | undefined> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('journal_entries')
     .select('*')
+    .eq('user_id', userId)
     .eq('date', date)
     .maybeSingle();
   if (error) throw error;
@@ -587,6 +619,7 @@ export async function getTodayJournalEntry(): Promise<JournalEntry | undefined> 
 }
 
 export async function createOrUpdateJournalEntry(entry: Partial<JournalEntry> & { date: string }): Promise<JournalEntry> {
+  const userId = requireUserId();
   const existing = await getJournalEntryByDate(entry.date);
 
   if (existing) {
@@ -617,6 +650,7 @@ export async function createOrUpdateJournalEntry(entry: Partial<JournalEntry> & 
         learned: entry.learned || '',
         created_at: Date.now(),
         updated_at: Date.now(),
+        user_id: userId,
       })
       .select()
       .single();
@@ -632,18 +666,21 @@ export async function deleteJournalEntry(id: string): Promise<void> {
 
 // Reading Notes
 export async function getAllReadingNotes(): Promise<ReadingNote[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('reading_notes')
     .select('*')
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data || []).map((n) => toCamel<ReadingNote>(n));
 }
 
 export async function addReadingNote(source: string, content: string): Promise<ReadingNote> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('reading_notes')
-    .insert({ source, content, created_at: Date.now() })
+    .insert({ source, content, created_at: Date.now(), user_id: userId })
     .select()
     .single();
   if (error) throw error;
@@ -656,7 +693,8 @@ export async function deleteReadingNote(id: string): Promise<void> {
 }
 
 export async function getRandomReadingNote(): Promise<ReadingNote | null> {
-  const { data, error } = await supabase.from('reading_notes').select('*');
+  const userId = requireUserId();
+  const { data, error } = await supabase.from('reading_notes').select('*').eq('user_id', userId);
   if (error) throw error;
   if (!data || data.length === 0) return null;
   return toCamel<ReadingNote>(data[Math.floor(Math.random() * data.length)]);
@@ -664,16 +702,19 @@ export async function getRandomReadingNote(): Promise<ReadingNote | null> {
 
 // Friends
 export async function getAllFriends(): Promise<Friend[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('friends')
     .select('*')
+    .eq('user_id', userId)
     .order('order', { ascending: true });
   if (error) throw error;
   return (data || []).map((f) => toCamel<Friend>(f));
 }
 
 export async function addFriend(name: string, tier: 1 | 2 | 3 | 4 = 3, notes: string = ''): Promise<Friend> {
-  const { data: existing } = await supabase.from('friends').select('order').order('order', { ascending: false }).limit(1);
+  const userId = requireUserId();
+  const { data: existing } = await supabase.from('friends').select('order').eq('user_id', userId).order('order', { ascending: false }).limit(1);
   const maxOrder = existing && existing.length > 0 ? existing[0].order : -1;
 
   const { data, error } = await supabase
@@ -685,6 +726,7 @@ export async function addFriend(name: string, tier: 1 | 2 | 3 | 4 = 3, notes: st
       last_contact: null,
       order: maxOrder + 1,
       created_at: Date.now(),
+      user_id: userId,
     })
     .select()
     .single();
@@ -719,25 +761,29 @@ export async function reorderFriends(friends: Friend[]): Promise<void> {
 
 // Friend Connections
 export async function getAllFriendConnections(): Promise<FriendConnection[]> {
-  const { data, error } = await supabase.from('friend_connections').select('*');
+  const userId = requireUserId();
+  const { data, error } = await supabase.from('friend_connections').select('*').eq('user_id', userId);
   if (error) throw error;
   return (data || []).map((c) => toCamel<FriendConnection>(c));
 }
 
 export async function getConnectionsForFriend(friendId: string): Promise<FriendConnection[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('friend_connections')
     .select('*')
+    .eq('user_id', userId)
     .or(`friend_id_1.eq.${friendId},friend_id_2.eq.${friendId}`);
   if (error) throw error;
   return (data || []).map((c) => toCamel<FriendConnection>(c));
 }
 
 export async function addFriendConnection(friendId1: string, friendId2: string): Promise<FriendConnection> {
-  // Check if already exists
+  const userId = requireUserId();
   const { data: existing } = await supabase
     .from('friend_connections')
     .select('id')
+    .eq('user_id', userId)
     .or(`and(friend_id_1.eq.${friendId1},friend_id_2.eq.${friendId2}),and(friend_id_1.eq.${friendId2},friend_id_2.eq.${friendId1})`);
 
   if (existing && existing.length > 0) {
@@ -750,6 +796,7 @@ export async function addFriendConnection(friendId1: string, friendId2: string):
       friend_id_1: friendId1,
       friend_id_2: friendId2,
       created_at: Date.now(),
+      user_id: userId,
     })
     .select()
     .single();
@@ -762,67 +809,109 @@ export async function deleteFriendConnection(id: string): Promise<void> {
   if (error) throw error;
 }
 
-// Cookie Jar
-const COOKIE_JAR_ID = '00000000-0000-0000-0000-000000000001';
-const FINANCES_ID = '00000000-0000-0000-0000-000000000002';
-const QUICK_NOTES_ID = '00000000-0000-0000-0000-000000000003';
-const USER_SETTINGS_ID = '00000000-0000-0000-0000-000000000004';
-
+// Cookie Jar - per user
 export async function getCookieJarContent(): Promise<string> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('cookie_jar')
     .select('content')
-    .eq('id', COOKIE_JAR_ID)
+    .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
   return data?.content || '';
 }
 
 export async function saveCookieJarContent(content: string): Promise<void> {
-  const { error } = await supabase
+  const userId = requireUserId();
+  const { data: existing } = await supabase
     .from('cookie_jar')
-    .update({ content, updated_at: Date.now() })
-    .eq('id', COOKIE_JAR_ID);
-  if (error) throw error;
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('cookie_jar')
+      .update({ content, updated_at: Date.now() })
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('cookie_jar')
+      .insert({ content, updated_at: Date.now(), user_id: userId });
+    if (error) throw error;
+  }
 }
 
-// Finances
+// Finances - per user
 export async function getFinancesContent(): Promise<string> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('finances')
     .select('content')
-    .eq('id', FINANCES_ID)
+    .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
   return data?.content || '';
 }
 
 export async function saveFinancesContent(content: string): Promise<void> {
-  const { error } = await supabase
+  const userId = requireUserId();
+  const { data: existing } = await supabase
     .from('finances')
-    .upsert({ id: FINANCES_ID, content, updated_at: Date.now() });
-  if (error) throw error;
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('finances')
+      .update({ content, updated_at: Date.now() })
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('finances')
+      .insert({ content, updated_at: Date.now(), user_id: userId });
+    if (error) throw error;
+  }
 }
 
-// Quick Notes
+// Quick Notes - per user
 export async function getQuickNotesContent(): Promise<string> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('quick_notes')
     .select('content')
-    .eq('id', QUICK_NOTES_ID)
+    .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
   return data?.content || '';
 }
 
 export async function saveQuickNotesContent(content: string): Promise<void> {
-  const { error } = await supabase
+  const userId = requireUserId();
+  const { data: existing } = await supabase
     .from('quick_notes')
-    .upsert({ id: QUICK_NOTES_ID, content, updated_at: Date.now() });
-  if (error) throw error;
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('quick_notes')
+      .update({ content, updated_at: Date.now() })
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('quick_notes')
+      .insert({ content, updated_at: Date.now(), user_id: userId });
+    if (error) throw error;
+  }
 }
 
-// User Settings (goal section titles, friend sections, app settings)
+// User Settings - per user
 export interface UserSettings {
   goalSectionTitles?: Record<string, string>;
   friendsSections?: { id: string; name: string; tier: number }[];
@@ -833,36 +922,56 @@ export interface UserSettings {
 }
 
 export async function getUserSettings(): Promise<UserSettings> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('user_settings')
     .select('settings')
-    .eq('id', USER_SETTINGS_ID)
+    .eq('user_id', userId)
     .maybeSingle();
   if (error) throw error;
   return data?.settings || {};
 }
 
 export async function saveUserSettings(settings: UserSettings): Promise<void> {
-  const { error } = await supabase
+  const userId = requireUserId();
+  const { data: existing } = await supabase
     .from('user_settings')
-    .upsert({ id: USER_SETTINGS_ID, settings, updated_at: Date.now() });
-  if (error) throw error;
+    .select('id')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from('user_settings')
+      .update({ settings, updated_at: Date.now() })
+      .eq('id', existing.id);
+    if (error) throw error;
+  } else {
+    const { error } = await supabase
+      .from('user_settings')
+      .insert({ settings, updated_at: Date.now(), user_id: userId });
+    if (error) throw error;
+  }
 }
 
 // Monthly Reflections
 export async function getAllMonthlyReflections(): Promise<MonthlyReflection[]> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('monthly_reflections')
     .select('*')
+    .eq('user_id', userId)
     .order('month', { ascending: false });
   if (error) throw error;
   return (data || []).map((r) => toCamel<MonthlyReflection>(r));
 }
 
 export async function getMonthlyReflection(month: string): Promise<MonthlyReflection | undefined> {
+  const userId = requireUserId();
   const { data, error } = await supabase
     .from('monthly_reflections')
     .select('*')
+    .eq('user_id', userId)
     .eq('month', month)
     .maybeSingle();
   if (error) throw error;
@@ -870,6 +979,7 @@ export async function getMonthlyReflection(month: string): Promise<MonthlyReflec
 }
 
 export async function createOrUpdateMonthlyReflection(reflection: Partial<MonthlyReflection> & { month: string }): Promise<MonthlyReflection> {
+  const userId = requireUserId();
   const existing = await getMonthlyReflection(reflection.month);
 
   if (existing) {
@@ -948,6 +1058,7 @@ export async function createOrUpdateMonthlyReflection(reflection: Partial<Monthl
         notes_productivity: reflection.notesProductivity || '',
         created_at: Date.now(),
         updated_at: Date.now(),
+        user_id: userId,
       })
       .select()
       .single();
@@ -958,9 +1069,11 @@ export async function createOrUpdateMonthlyReflection(reflection: Partial<Monthl
 
 
 export async function deleteMonthlyReflection(month: string): Promise<void> {
+  const userId = requireUserId();
   const { error } = await supabase
     .from('monthly_reflections')
     .delete()
+    .eq('user_id', userId)
     .eq('month', month);
   if (error) throw error;
 }
@@ -979,20 +1092,20 @@ export interface LifetimeStats {
 }
 
 export async function getLifetimeStats(): Promise<LifetimeStats> {
+  const userId = requireUserId();
   const [todos, completions, journals, notes, reflections, routines] = await Promise.all([
-    supabase.from('todos').select('id, completed, created_at'),
-    supabase.from('completions').select('id'),
-    supabase.from('journal_entries').select('id'),
-    supabase.from('reading_notes').select('id'),
-    supabase.from('monthly_reflections').select('id'),
-    supabase.from('routines').select('name, longest_streak, created_at').order('longest_streak', { ascending: false }),
+    supabase.from('todos').select('id, completed, created_at').eq('user_id', userId),
+    supabase.from('completions').select('id').eq('user_id', userId),
+    supabase.from('journal_entries').select('id').eq('user_id', userId),
+    supabase.from('reading_notes').select('id').eq('user_id', userId),
+    supabase.from('monthly_reflections').select('id').eq('user_id', userId),
+    supabase.from('routines').select('name, longest_streak, created_at').eq('user_id', userId).order('longest_streak', { ascending: false }),
   ]);
 
   const todosData = todos.data || [];
   const routinesData = routines.data || [];
   const topRoutine = routinesData[0];
 
-  // Find earliest created_at across todos and routines
   let earliest: number | null = null;
   for (const t of todosData) {
     if (t.created_at && (!earliest || t.created_at < earliest)) earliest = t.created_at;
@@ -1024,33 +1137,30 @@ export interface DashboardStats {
 }
 
 export async function getDashboardStats(weekStart: number): Promise<DashboardStats> {
+  const userId = requireUserId();
   const weekEnd = weekStart + 7 * 24 * 60 * 60 * 1000;
 
   const [todosRes, completionsRes, journalsRes, routinesRes] = await Promise.all([
-    supabase.from('todos').select('completed_at').not('completed_at', 'is', null),
-    supabase.from('completions').select('completed_at'),
-    supabase.from('journal_entries').select('created_at'),
-    supabase.from('routines').select('name, current_streak, longest_streak, frequency_per_week, created_at').order('current_streak', { ascending: false }),
+    supabase.from('todos').select('completed_at').eq('user_id', userId).not('completed_at', 'is', null),
+    supabase.from('completions').select('completed_at').eq('user_id', userId),
+    supabase.from('journal_entries').select('created_at').eq('user_id', userId),
+    supabase.from('routines').select('name, current_streak, longest_streak, frequency_per_week, created_at').eq('user_id', userId).order('current_streak', { ascending: false }),
   ]);
 
-  // Todos completed this week
   const allCompletedTodos = todosRes.data || [];
   const todosCompletedThisWeek = allCompletedTodos.filter(
     (t: { completed_at: number }) => t.completed_at >= weekStart && t.completed_at < weekEnd
   ).length;
 
-  // Best current routine streak
   const routinesData = routinesRes.data || [];
   const topRoutine = routinesData[0];
 
-  // Days on platform - earliest created_at from routines
   let earliest: number | null = null;
   for (const r of routinesData) {
     if (r.created_at && (!earliest || r.created_at < earliest)) earliest = r.created_at;
   }
   const daysOnPlatform = earliest ? Math.floor((Date.now() - earliest) / (1000 * 60 * 60 * 24)) : 0;
 
-  // Day streak - collect all active dates
   const activeDates = new Set<string>();
   const toDateStr = (ts: number) => {
     const d = new Date(ts);
@@ -1067,11 +1177,9 @@ export async function getDashboardStats(weekStart: number): Promise<DashboardSta
     if (j.created_at) activeDates.add(toDateStr(j.created_at));
   }
 
-  // Count streak backwards from today
   let dayStreak = 0;
   const now = new Date();
   const check = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  // If today has no activity yet, start from yesterday
   if (!activeDates.has(toDateStr(check.getTime()))) {
     check.setDate(check.getDate() - 1);
   }

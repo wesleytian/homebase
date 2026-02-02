@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from './AuthContext';
+import { LoginPage } from './LoginPage';
 import { trackEvent, trackFeatureUsed, trackSessionStart } from './analytics';
 import { useUndo } from './useUndo';
 import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS } from './types';
@@ -93,6 +95,24 @@ function formatWeekRange(weekStart: number): string {
 
 
 export default function App() {
+  const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
+
+  if (authLoading) {
+    return (
+      <div className="app" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh' }}>
+        <p style={{ color: '#b0a898' }}>Loading...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage onSignIn={signInWithGoogle} />;
+  }
+
+  return <AppContent onSignOut={signOut} />;
+}
+
+function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const { pushUndo } = useUndo();
   const [routines, setRoutines] = useState<RoutineWithProgress[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
@@ -1397,7 +1417,10 @@ export default function App() {
           </span>
         )}
         <div className="header-buttons">
-<button className="settings-btn" onClick={() => setCurrentPage('settings')}>
+<button className="settings-btn" onClick={onSignOut} data-tooltip="Sign out" style={{ marginRight: 4 }}>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
+            </button>
+            <button className="settings-btn" onClick={() => setCurrentPage('settings')}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
               <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
             </svg>

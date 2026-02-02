@@ -1,9 +1,11 @@
 import { supabase } from './supabase';
+import { getCurrentUserId } from './db';
 
 // Generate a session ID per page load
 const SESSION_ID = crypto.randomUUID();
 
 export function trackEvent(event: string, properties?: Record<string, unknown>): void {
+  const userId = getCurrentUserId();
   supabase
     .from('analytics_events')
     .insert({
@@ -11,6 +13,7 @@ export function trackEvent(event: string, properties?: Record<string, unknown>):
       properties: properties || {},
       session_id: SESSION_ID,
       created_at: Date.now(),
+      ...(userId ? { user_id: userId } : {}),
     })
     .then(({ error }) => {
       if (error) console.warn('Analytics error:', error.message);
