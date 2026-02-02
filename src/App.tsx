@@ -80,7 +80,6 @@ import { FriendsPage, FriendSection, DEFAULT_SECTIONS } from './FriendsPage';
 import { CookieJar } from './CookieJar';
 import { MonthlyReflectionModal } from './MonthlyReflection';
 import { SettingsPage } from './SettingsPage';
-import { AIChat } from './AIChat';
 import { QuickNotes } from './QuickNotes';
 import './App.css';
 
@@ -117,7 +116,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [routines, setRoutines] = useState<RoutineWithProgress[]>([]);
   const [todos, setTodos] = useState<Todo[]>([]);
   const [sections, setSections] = useState<ToggleSection[]>([]);
-  const [lifeGoals, setLifeGoals] = useState<Goal[]>([]);
+  const [_lifeGoals, setLifeGoals] = useState<Goal[]>([]);
   const [yearlyGoals, setYearlyGoals] = useState<Goal[]>([]);
   const [quarterlyGoals, setQuarterlyGoals] = useState<Goal[]>([]);
   // Section collapsed states (persisted to localStorage)
@@ -136,7 +135,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       routines: false,
       q1Goals: false,
       yearlyGoals: false,
-      lifeGoals: true,
+      _lifeGoals: true,
       closeFriends: false,
       cookieJar: false,
     };
@@ -172,7 +171,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const DEFAULT_GOAL_SECTION_TITLES = {
     q1Goals: '2026 Q1 Goals',
     yearlyGoals: '2026 Goals',
-    lifeGoals: 'Life Goals',
+    _lifeGoals: 'Life Goals',
   };
   const [goalSectionTitles, setGoalSectionTitles] = useState<Record<string, string>>(DEFAULT_GOAL_SECTION_TITLES);
   const [editingGoalSection, setEditingGoalSection] = useState<string | null>(null);
@@ -1307,20 +1306,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return <div className="loading">Loading...</div>;
   }
 
-  const aiChatComponent = (
-    <AIChat
-      settings={settings}
-      todos={todos}
-      sections={sections}
-      lifeGoals={lifeGoals}
-      yearlyGoals={yearlyGoals}
-      quarterlyGoals={quarterlyGoals}
-      routines={routines}
-      journalEntries={allJournalEntries}
-      friends={friends}
-      onNavigateToSettings={() => { setCurrentPage('settings'); trackFeatureUsed('settings'); }}
-    />
-  );
+
 
   if (currentPage === 'journal') {
     return (
@@ -1330,8 +1316,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onBack={() => { setCurrentPage('dashboard'); }}
           onSave={handleSaveJournalEntry}
         />
-        {aiChatComponent}
-      </div>
+        </div>
     );
   }
 
@@ -1348,8 +1333,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onSectionsChange={handleFriendsSectionsChange}
           pushUndo={pushUndo}
         />
-        {aiChatComponent}
-      </div>
+        </div>
     );
   }
 
@@ -1375,8 +1359,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
             setShowMonthlyReflection(true);
           }}
         />
-        {aiChatComponent}
-      {showMonthlyReflection && (
+        {showMonthlyReflection && (
         <MonthlyReflectionModal
           reflection={currentMonthlyReflection}
           month={monthlyReflectionMonth}
@@ -1782,7 +1765,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         />
       )}
 
-      {aiChatComponent}
 
       <footer className="app-footer">
         Made with ❤️ in SF
