@@ -5866,13 +5866,13 @@ main {
   justify-content: center;
   min-height: 100vh;
   min-height: 100dvh;
-  background: #121010;
+  background: linear-gradient(135deg, #faf8f5 0%, #f0ebe4 100%);
   padding: 1rem;
 }
 
 .login-card {
-  background: #1e1a16;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #fff;
+  border: 1px solid #e8e4df;
   border-radius: 16px;
   padding: 3rem;
   text-align: center;
@@ -5887,13 +5887,15 @@ main {
 }
 
 .login-card h1 {
-  color: #e8dcc8;
-  font-size: 2.5rem;
+  color: #3a3530;
+  font-family: 'Fraunces', serif;
+  font-size: 2rem;
+  font-weight: 400;
   margin: 0 0 0.5rem;
 }
 
 .login-card p {
-  color: #b0a898;
+  color: #8a7e72;
   font-size: 0.95rem;
   margin: 0 0 2rem;
 }
@@ -5902,9 +5904,9 @@ main {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  background: #fff;
-  color: #333;
-  border: none;
+  background: #faf8f5;
+  color: #3a3530;
+  border: 1px solid #e8e4df;
   border-radius: 8px;
   padding: 0.7rem 1.5rem;
   font-size: 0.95rem;
@@ -5915,7 +5917,7 @@ main {
 }
 
 .login-google-btn:hover {
-  background: #f0f0f0;
+  background: #f0ebe4;
 }
 
 /* Footer */

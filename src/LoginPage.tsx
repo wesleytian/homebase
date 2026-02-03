@@ -7,7 +7,7 @@ export function LoginPage({ onSignIn }: Props) {
     <div className="login-page">
       <div className="login-card">
         <div className="login-icon">🏡</div>
-        <h1>Homebase</h1>
+        <h1>Welcome to your Homebase</h1>
         <p>One place for your goals, habits, to-dos, and reflections.</p>
         <button className="login-google-btn" onClick={onSignIn}>
           <svg width="18" height="18" viewBox="0 0 18 18" xmlns="http://www.w3.org/2000/svg">
