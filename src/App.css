@@ -136,6 +136,7 @@ header {
 }
 
 header h1 {
+  font-family: 'Fraunces', serif;
   font-size: 1.25rem;
   font-weight: 700;
   color: #1a1816;
@@ -245,6 +246,9 @@ main {
 @media (max-width: 700px) {
   main {
     grid-template-columns: 1fr;
+  }
+  header h1 {
+    font-size: 1.05rem;
   }
 }
 
@@ -5352,80 +5356,78 @@ main {
 .monthly-reflection-banner {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, #f8f4ef 0%, #f3ece3 100%);
-  border: 1px solid #e8dfd4;
+  gap: 12px;
+  padding: 8px 12px;
+  background: #fff;
+  border: 1px solid #e8e4df;
   border-radius: 8px;
   margin-bottom: 12px;
-  font-size: 0.9rem;
-  color: #6b5b4f;
+  font-size: 0.8rem;
+  color: #5a524a;
 }
 
 .monthly-reflection-banner-text {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.monthly-reflection-banner button {
-  background: #f5a623;
-  color: white;
-  border: none;
-  padding: 5px 14px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 0.85rem;
-  font-weight: 500;
-  transition: background 0.15s;
-}
-
-.monthly-reflection-banner.complete {
-  padding: 6px 14px;
-  background: #f5f2ee;
-  border-color: #e8e3dc;
-  font-size: 0.82rem;
-  color: #9a8e82;
-}
-
-.monthly-reflection-banner.complete button {
-  background: #d4cdc4;
-  font-size: 0.8rem;
-  padding: 3px 10px;
-}
-
-.monthly-reflection-banner.complete button:hover {
-  background: #b8b0a6;
+  flex: 1;
+  min-width: 0;
 }
 
 .monthly-reflection-check {
   color: #7cb342;
 }
 
-.monthly-reflection-banner button:hover {
-  background: #e09510;
-}
-
-
 .monthly-reflection-banner-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
+  flex-shrink: 0;
+}
+
+.monthly-reflection-banner-actions button {
+  font-family: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 3px 8px;
+  transition: background 0.15s;
+}
+
+.monthly-reflection-banner-actions button:first-child {
+  background: #e8a87c;
+  color: white;
+  border: none;
+  font-weight: 500;
+}
+
+.monthly-reflection-banner-actions button:first-child:hover {
+  background: #d4915e;
 }
 
 .monthly-reflection-dismiss {
-  background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  color: rgba(255, 255, 255, 0.5);
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 0.75rem;
-  cursor: pointer;
+  background: none !important;
+  border: none !important;
+  color: #8a7e72 !important;
+  padding: 3px 4px !important;
+  font-size: 0.65rem !important;
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .monthly-reflection-dismiss:hover {
-  color: rgba(255, 255, 255, 0.8);
-  border-color: rgba(255, 255, 255, 0.3);
+  color: #5a524a !important;
+}
+
+.monthly-reflection-banner.complete {
+  background: #f9f7f4;
+  border-color: #e8e3dc;
+  color: #9a8e82;
+}
+
+.monthly-reflection-banner.complete .monthly-reflection-banner-actions button:first-child {
+  background: #d4cdc4;
+}
+
+.monthly-reflection-banner.complete .monthly-reflection-banner-actions button:first-child:hover {
+  background: #b8b0a6;
 }
 
 .monthly-reflection-overlay {
@@ -5997,6 +5999,7 @@ main {
   padding: 6px 0;
   padding-bottom: max(6px, env(safe-area-inset-bottom));
   z-index: 1000;
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 }
 
 .mobile-nav-item {
@@ -6062,6 +6065,10 @@ main {
 
 .mobile-more-item:active {
   background: #f5f0eb;
+}
+
+.mobile-tab-content .app-section + .app-section {
+  margin-top: 16px;
 }
 
 .mobile-more-icon {

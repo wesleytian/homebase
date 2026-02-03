@@ -209,6 +209,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [showMonthlyReflection, setShowMonthlyReflection] = useState(false);
   const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(c ? c[15] as DashboardStats : null);
   const [monthlyReflectionMonth, setMonthlyReflectionMonth] = useState('');
+  const [reflectionDismissed, setReflectionDismissed] = useState(false);
   const [currentMonthlyReflection, setCurrentMonthlyReflection] = useState<MonthlyReflection | null>(null);
   const [currentHour, setCurrentHour] = useState(new Date().getHours());
   const [allNotes, setAllNotes] = useState<ReadingNote[]>(c ? c[8] as ReadingNote[] : []);
@@ -1654,13 +1655,15 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     </section>
   );
 
+  const [mobileQuickThoughtsOpen, setMobileQuickThoughtsOpen] = useState(false);
+  const quickThoughtsCollapsed = isMobile ? !mobileQuickThoughtsOpen : collapsedSections.quickThoughts;
   const quickNotesSection = (
     <section className="app-section quick-notes-section collapsible-section">
-      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('quickThoughts')}>
-        <span className={`collapse-arrow ${collapsedSections.quickThoughts ? '' : 'open'}`}>▶</span>
+      <h2 className="collapsible-header" onClick={() => { if (isMobile) setMobileQuickThoughtsOpen(v => !v); else toggleSectionCollapsed('quickThoughts'); }}>
+        <span className={`collapse-arrow ${quickThoughtsCollapsed ? '' : 'open'}`}>▶</span>
         Quick Thoughts
       </h2>
-      {!collapsedSections.quickThoughts && (
+      {!quickThoughtsCollapsed && (
         <QuickNotes content={quickNotesContent} onSave={handleSaveQuickNotes} />
       )}
     </section>
@@ -1716,8 +1719,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       && existing.ratingEnvironment && existing.ratingProductivity;
     const monthName = prevMonth.toLocaleDateString('en-US', { month: 'long' });
     const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
-    const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`);
-    if (dismissed) return null;
+    if (isComplete || reflectionDismissed || localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`)) return null;
     return (
       <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isFirstSunday && !isComplete ? 'urgent' : ''}`}>
         <span className="monthly-reflection-banner-text">
@@ -1733,8 +1735,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           }}>{isComplete ? 'Review' : 'Open'}</button>
           <button className="monthly-reflection-dismiss" onClick={() => {
             localStorage.setItem(`monthlyReflectionDismissed-${prevMonthStr}`, 'true');
-            setMonthlyReflectionMonth('');
-          }}>Dismiss (find in Settings)</button>
+            setReflectionDismissed(true);
+          }}>Dismiss</button>
         </div>
       </div>
     );
@@ -1790,7 +1792,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
             <>
               {statsBanner}
               {journalBanner}
-              {quickNotesSection}
               {monthlyReflectionBanner}
               <TodoList
                 todos={todos} sections={sections} confettiEnabled={settings.confettiEnabled}
@@ -1838,6 +1839,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                   <span>Sign Out</span>
                 </button>
               </div>
+              {quickNotesSection}
               {readingNotesSection}
               {cookieJarSection}
               {friendsSection}
