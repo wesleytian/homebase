@@ -85,6 +85,19 @@ const SettingsPage = lazy(() => import('./SettingsPage').then(m => ({ default: m
 import { QuickNotes } from './QuickNotes';
 import './App.css';
 
+function useMobileLayout(breakpoint = 700) {
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth <= breakpoint);
+  useEffect(() => {
+    const mq = window.matchMedia(`(max-width: ${breakpoint}px)`);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [breakpoint]);
+  return isMobile;
+}
+
+type MobileTab = 'todos' | 'routines' | 'goals' | 'more';
+
 function formatWeekRange(weekStart: number): string {
   const start = new Date(weekStart);
   const end = new Date(weekStart);
@@ -115,6 +128,8 @@ export default function App() {
 }
 
 function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
+  const isMobile = useMobileLayout();
+  const [mobileTab, setMobileTab] = useState<MobileTab>('todos');
   const { pushUndo } = useUndo();
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const toastIdRef = useRef(0);
@@ -1523,6 +1538,338 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     );
   }
 
+  // Shared UI fragments
+  const statsBanner = dashboardStats && (
+    <div className="dashboard-stats-banner">
+      <div className="dashboard-stat-card" data-tooltip="Consecutive days you've completed a todo, routine, or journal entry">
+        <span className="dashboard-stat-icon">🔥</span>
+        <span className="dashboard-stat-value">{dashboardStats.dayStreak}</span>
+        <span className="dashboard-stat-label">day streak</span>
+      </div>
+      <div className="dashboard-stat-card" data-tooltip="Todos checked off since Monday">
+        <span className="dashboard-stat-icon">✓</span>
+        <span className="dashboard-stat-value">{dashboardStats.todosCompletedThisWeek}</span>
+        <span className="dashboard-stat-label">this week</span>
+      </div>
+      {dashboardStats.bestRoutineStreak > 0 && (
+        <div className="dashboard-stat-card" data-tooltip={`${dashboardStats.bestRoutineStreak}-week streak for ${dashboardStats.bestRoutineStreakName} (your longest active routine streak)`}>
+          <span className="dashboard-stat-icon">📅</span>
+          <span className="dashboard-stat-value">{dashboardStats.bestRoutineStreak}</span>
+          <span className="dashboard-stat-label">wk streak</span>
+        </div>
+      )}
+      <div className="dashboard-stat-card" data-tooltip="Days since you started using Homebase">
+        <span className="dashboard-stat-icon">⚡</span>
+        <span className="dashboard-stat-value">{dashboardStats.daysOnPlatform}</span>
+        <span className="dashboard-stat-label">days</span>
+      </div>
+    </div>
+  );
+
+  const journalBanner = journalNeedsAttention && (
+    <section className="app-section journal-attention collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('gratitudeJournal')}>
+        <span className={`collapse-arrow ${collapsedSections.gratitudeJournal ? '' : 'open'}`}>▶</span>
+        Gratitude Journal
+      </h2>
+      {!collapsedSections.gratitudeJournal && (
+        <JournalCard entry={todayJournal} onOpenEditor={() => setShowJournalEditor(true)} onViewAll={() => setCurrentPage('journal')} />
+      )}
+    </section>
+  );
+
+  const todosSection = (
+    <section className="app-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('todos')}>
+        <span className={`collapse-arrow ${collapsedSections.todos ? '' : 'open'}`}>▶</span>
+        To-Dos
+      </h2>
+      {!collapsedSections.todos && (
+        <TodoList
+          todos={todos} sections={sections} confettiEnabled={settings.confettiEnabled}
+          onToggleTodo={handleToggleTodo} onDeleteTodo={handleDeleteTodo} onEditTodo={handleEditTodo}
+          onIndentTodo={handleIndentTodo} onAddTodo={handleAddTodo} onAddTodoAfter={handleAddTodoAfter}
+          onAddTodoBefore={handleAddTodoBefore} onMoveTodo={handleMoveTodo} onReorderTodos={handleReorderTodos}
+          onToggleSection={handleToggleSection} onDeleteSection={handleDeleteSection} onEditSection={handleEditSection}
+          onAddSection={handleAddSection} onReorderSections={handleReorderSections} onMoveToToday={handleMoveToToday}
+          pushUndo={pushUndo}
+        />
+      )}
+    </section>
+  );
+
+  const routinesSection = (
+    <section className="app-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('routines')}>
+        <span className={`collapse-arrow ${collapsedSections.routines ? '' : 'open'}`}>▶</span>
+        Routines
+      </h2>
+      {!collapsedSections.routines && (
+        <RoutineList routines={routines} onIncrement={handleIncrement} onDecrement={handleDecrement}
+          onDelete={handleDeleteRoutine} onEdit={handleEditRoutine} onReorder={handleReorderRoutines}
+          onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled} />
+      )}
+    </section>
+  );
+
+  const q1GoalsSection = (
+    <section className="app-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('q1Goals')}>
+        <span className={`collapse-arrow ${collapsedSections.q1Goals ? '' : 'open'}`}>▶</span>
+        {editingGoalSection === 'q1Goals' ? (
+          <input type="text" className="goal-section-title-input" value={editingGoalSectionValue}
+            onChange={(e) => setEditingGoalSectionValue(e.target.value)} onBlur={saveGoalSectionTitle}
+            onKeyDown={handleGoalSectionKeyDown} onClick={(e) => e.stopPropagation()} autoFocus />
+        ) : (
+          <span className="goal-section-title" onClick={(e) => { e.stopPropagation(); startEditingGoalSection('q1Goals'); }}>
+            {goalSectionTitles.q1Goals}
+          </span>
+        )}
+      </h2>
+      {!collapsedSections.q1Goals && (
+        <GoalList goals={quarterlyGoals} onDelete={handleDeleteQuarterlyGoal} onEdit={handleEditQuarterlyGoal}
+          onReorder={handleReorderQuarterlyGoals} onAdd={handleAddQuarterlyGoal} confettiEnabled={settings.confettiEnabled} />
+      )}
+    </section>
+  );
+
+  const yearlyGoalsSection = (
+    <section className="app-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('yearlyGoals')}>
+        <span className={`collapse-arrow ${collapsedSections.yearlyGoals ? '' : 'open'}`}>▶</span>
+        {editingGoalSection === 'yearlyGoals' ? (
+          <input type="text" className="goal-section-title-input" value={editingGoalSectionValue}
+            onChange={(e) => setEditingGoalSectionValue(e.target.value)} onBlur={saveGoalSectionTitle}
+            onKeyDown={handleGoalSectionKeyDown} onClick={(e) => e.stopPropagation()} autoFocus />
+        ) : (
+          <span className="goal-section-title" onClick={(e) => { e.stopPropagation(); startEditingGoalSection('yearlyGoals'); }}>
+            {goalSectionTitles.yearlyGoals}
+          </span>
+        )}
+      </h2>
+      {!collapsedSections.yearlyGoals && (
+        <GoalList goals={yearlyGoals} onDelete={handleDeleteYearlyGoal} onEdit={handleEditYearlyGoal}
+          onReorder={handleReorderYearlyGoals} onAdd={handleAddYearlyGoal} confettiEnabled={settings.confettiEnabled} />
+      )}
+    </section>
+  );
+
+  const quickNotesSection = (
+    <section className="app-section quick-notes-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('quickThoughts')}>
+        <span className={`collapse-arrow ${collapsedSections.quickThoughts ? '' : 'open'}`}>▶</span>
+        Quick Thoughts
+      </h2>
+      {!collapsedSections.quickThoughts && (
+        <QuickNotes content={quickNotesContent} onSave={handleSaveQuickNotes} />
+      )}
+    </section>
+  );
+
+  const readingNotesSection = (
+    <section className="app-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('readingNotes')}>
+        <span className={`collapse-arrow ${collapsedSections.readingNotes ? '' : 'open'}`}>▶</span>
+        Reading Notes
+      </h2>
+      {!collapsedSections.readingNotes && (
+        <RandomInsightCard note={randomNote} onAddNote={() => setShowAddNoteModal(true)} onViewAll={() => setShowViewNotesModal(true)} />
+      )}
+    </section>
+  );
+
+  const friendsSection = (
+    <section className="app-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('closeFriends')}>
+        <span className={`collapse-arrow ${collapsedSections.closeFriends ? '' : 'open'}`}>▶</span>
+        Close Friends
+      </h2>
+      {!collapsedSections.closeFriends && (
+        <FriendsCard friends={friends} onViewAll={() => setCurrentPage('friends')} />
+      )}
+    </section>
+  );
+
+  const cookieJarSection = (
+    <section className="app-section collapsible-section">
+      <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('cookieJar')}>
+        <span className={`collapse-arrow ${collapsedSections.cookieJar ? '' : 'open'}`}>▶</span>
+        Cookie Jar
+      </h2>
+      {!collapsedSections.cookieJar && (
+        <CookieJar content={cookieJarContent} onSave={handleSaveCookieJar} />
+      )}
+    </section>
+  );
+
+  const monthlyReflectionBanner = (() => {
+    const now = new Date();
+    const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+    const existing = monthlyReflections.find((r) => r.month === prevMonthStr);
+    const isComplete = existing
+      && existing.overall && existing.challenges && existing.lookingForward
+      && existing.ratingOverall && existing.ratingHealth && existing.ratingCareer
+      && existing.ratingFinances && existing.ratingFriends && existing.ratingFamily
+      && existing.ratingRomance && existing.ratingFun && existing.ratingGrowth
+      && existing.ratingMentalHealth && existing.ratingSpirituality
+      && existing.ratingEnvironment && existing.ratingProductivity;
+    const monthName = prevMonth.toLocaleDateString('en-US', { month: 'long' });
+    const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
+    const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`);
+    if (dismissed) return null;
+    return (
+      <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isFirstSunday && !isComplete ? 'urgent' : ''}`}>
+        <span className="monthly-reflection-banner-text">
+          {isComplete ? `${monthName} reflection` : `Monthly reflection for ${monthName}`}
+          {isComplete && <span className="monthly-reflection-check"> ✓</span>}
+        </span>
+        <div className="monthly-reflection-banner-actions">
+          <button onClick={() => {
+            setMonthlyReflectionMonth(prevMonthStr);
+            const r = monthlyReflections.find((r) => r.month === prevMonthStr);
+            setCurrentMonthlyReflection(r || null);
+            setShowMonthlyReflection(true);
+          }}>{isComplete ? 'Review' : 'Open'}</button>
+          <button className="monthly-reflection-dismiss" onClick={() => {
+            localStorage.setItem(`monthlyReflectionDismissed-${prevMonthStr}`, 'true');
+            setMonthlyReflectionMonth('');
+          }}>Dismiss (find in Settings)</button>
+        </div>
+      </div>
+    );
+  })();
+
+  const modals = (
+    <>
+      {showMonthlyReflection && (
+        <MonthlyReflectionModal reflection={currentMonthlyReflection} month={monthlyReflectionMonth}
+          onSave={handleSaveMonthlyReflection} onClose={() => { setShowMonthlyReflection(false); if (monthlyReflectionMonth) localStorage.setItem(`monthlyReflectionDismissed-${monthlyReflectionMonth}`, 'true'); }}
+          onChangeMonth={handleChangeReflectionMonth} />
+      )}
+      {showJournalEditor && (
+        <JournalEntryEditor entry={todayJournal} date={getTodayDate()} onSave={handleSaveJournalEntry}
+          onClose={async () => { setShowJournalEditor(false); const updated = await getTodayJournalEntry(); setTodayJournal(updated ?? null); }} />
+      )}
+      {showAddNoteModal && <AddNoteModal onSave={handleAddNote} onClose={() => setShowAddNoteModal(false)} />}
+      {showViewNotesModal && (
+        <ViewNotesModal notes={allNotes} onClose={() => setShowViewNotesModal(false)} onDelete={handleDeleteNote}
+          onAddNote={() => { setShowViewNotesModal(false); setShowAddNoteModal(true); }} />
+      )}
+    </>
+  );
+
+  // ─── MOBILE LAYOUT ───
+  if (isMobile && currentPage === 'dashboard') {
+    return (
+      <div className="app mobile-app">
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+        {showSleepModal && (
+          <div className="sleep-modal-overlay">
+            <div className="sleep-modal" onClick={(e) => e.stopPropagation()}>
+              <div className="sleep-modal-emoji">😴</div>
+              <h2>It's past midnight!</h2>
+              <p>Go to sleep. Tomorrow you'll be sharper, more creative, and more productive.</p>
+              <button className="sleep-modal-btn" onClick={() => { setShowSleepModal(false); setTimeout(() => setShowSleepModal(true), 5 * 60 * 1000); }}>
+                Dismiss for 5 min
+              </button>
+            </div>
+          </div>
+        )}
+
+        <header>
+          <h1><span style={{ fontSize: '1.3em', marginRight: '0.5rem' }}>🏡</span>{settings.firstName ? `${settings.firstName}'s Homebase` : 'Homebase'}</h1>
+          <p className="week-range">{formatWeekRange(weekStart)}</p>
+          {saveStatus !== 'idle' && (
+            <span className={`save-status ${saveStatus}`}>{saveStatus === 'saving' ? 'Saving...' : '✓ Saved'}</span>
+          )}
+        </header>
+
+        <div className="mobile-tab-content">
+          {mobileTab === 'todos' && (
+            <>
+              {statsBanner}
+              {journalBanner}
+              {quickNotesSection}
+              {monthlyReflectionBanner}
+              <TodoList
+                todos={todos} sections={sections} confettiEnabled={settings.confettiEnabled}
+                onToggleTodo={handleToggleTodo} onDeleteTodo={handleDeleteTodo} onEditTodo={handleEditTodo}
+                onIndentTodo={handleIndentTodo} onAddTodo={handleAddTodo} onAddTodoAfter={handleAddTodoAfter}
+                onAddTodoBefore={handleAddTodoBefore} onMoveTodo={handleMoveTodo} onReorderTodos={handleReorderTodos}
+                onToggleSection={handleToggleSection} onDeleteSection={handleDeleteSection} onEditSection={handleEditSection}
+                onAddSection={handleAddSection} onReorderSections={handleReorderSections} onMoveToToday={handleMoveToToday}
+                pushUndo={pushUndo}
+              />
+            </>
+          )}
+          {mobileTab === 'routines' && (
+            <>
+              {statsBanner}
+              <RoutineList routines={routines} onIncrement={handleIncrement} onDecrement={handleDecrement}
+                onDelete={handleDeleteRoutine} onEdit={handleEditRoutine} onReorder={handleReorderRoutines}
+                onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled} />
+            </>
+          )}
+          {mobileTab === 'goals' && (
+            <>
+              <GoalList goals={quarterlyGoals} onDelete={handleDeleteQuarterlyGoal} onEdit={handleEditQuarterlyGoal}
+                onReorder={handleReorderQuarterlyGoals} onAdd={handleAddQuarterlyGoal} confettiEnabled={settings.confettiEnabled} />
+              {yearlyGoalsSection}
+            </>
+          )}
+          {mobileTab === 'more' && (
+            <>
+              <div className="mobile-more-grid">
+                <button className="mobile-more-item" onClick={() => setCurrentPage('journal')}>
+                  <span className="mobile-more-icon">📓</span>
+                  <span>Journal</span>
+                </button>
+                <button className="mobile-more-item" onClick={() => setCurrentPage('friends')}>
+                  <span className="mobile-more-icon">👥</span>
+                  <span>Friends</span>
+                </button>
+                <button className="mobile-more-item" onClick={() => setCurrentPage('settings')}>
+                  <span className="mobile-more-icon">⚙️</span>
+                  <span>Settings</span>
+                </button>
+                <button className="mobile-more-item" onClick={onSignOut}>
+                  <span className="mobile-more-icon">🚪</span>
+                  <span>Sign Out</span>
+                </button>
+              </div>
+              {readingNotesSection}
+              {cookieJarSection}
+              {friendsSection}
+            </>
+          )}
+        </div>
+
+        {modals}
+
+        <nav className="mobile-nav">
+          <button className={`mobile-nav-item ${mobileTab === 'todos' ? 'active' : ''}`} onClick={() => setMobileTab('todos')}>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-9 14l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+            <span>Todos</span>
+          </button>
+          <button className={`mobile-nav-item ${mobileTab === 'routines' ? 'active' : ''}`} onClick={() => setMobileTab('routines')}>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19 4h-1V2h-2v2H8V2H6v2H5c-1.11 0-1.99.9-1.99 2L3 20c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 16H5V10h14v10zm0-12H5V6h14v2zm-7 5h5v5h-5v-5z"/></svg>
+            <span>Routines</span>
+          </button>
+          <button className={`mobile-nav-item ${mobileTab === 'goals' ? 'active' : ''}`} onClick={() => setMobileTab('goals')}>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M19 5h-2V3H7v2H5c-1.1 0-2 .9-2 2v1c0 2.55 1.92 4.63 4.39 4.94.63 1.5 1.98 2.63 3.61 2.96V19H7v2h10v-2h-4v-3.1c1.63-.33 2.98-1.46 3.61-2.96C19.08 12.63 21 10.55 21 8V7c0-1.1-.9-2-2-2zM5 8V7h2v3.82C5.84 10.4 5 9.3 5 8zm14 0c0 1.3-.84 2.4-2 2.82V7h2v1z"/></svg>
+            <span>Goals</span>
+          </button>
+          <button className={`mobile-nav-item ${mobileTab === 'more' ? 'active' : ''}`} onClick={() => setMobileTab('more')}>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M6 10c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm12 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm-6 0c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+            <span>More</span>
+          </button>
+        </nav>
+      </div>
+    );
+  }
+
+  // ─── DESKTOP LAYOUT ───
   return (
     <div className="app">
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
@@ -1530,8 +1877,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         <div className="sleep-modal-overlay">
           <div className="sleep-modal" onClick={(e) => e.stopPropagation()}>
             <div className="sleep-modal-emoji">😴</div>
-            <h2>It’s past midnight!</h2>
-            <p>Go to sleep. Tomorrow you’ll be sharper, more creative, and more productive.</p>
+            <h2>It's past midnight!</h2>
+            <p>Go to sleep. Tomorrow you'll be sharper, more creative, and more productive.</p>
             <button className="sleep-modal-btn" onClick={() => { setShowSleepModal(false); setTimeout(() => setShowSleepModal(true), 5 * 60 * 1000); }}>
               Dismiss for 5 min
             </button>
@@ -1558,362 +1905,40 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         </div>
       </header>
 
-      {dashboardStats && (
-        <div className="dashboard-stats-banner">
-          <div className="dashboard-stat-card" data-tooltip="Consecutive days you've completed a todo, routine, or journal entry">
-            <span className="dashboard-stat-icon">🔥</span>
-            <span className="dashboard-stat-value">{dashboardStats.dayStreak}</span>
-            <span className="dashboard-stat-label">day streak</span>
-          </div>
-          <div className="dashboard-stat-card" data-tooltip="Todos checked off since Monday">
-            <span className="dashboard-stat-icon">✓</span>
-            <span className="dashboard-stat-value">{dashboardStats.todosCompletedThisWeek}</span>
-            <span className="dashboard-stat-label">this week</span>
-          </div>
-          {dashboardStats.bestRoutineStreak > 0 && (
-            <div className="dashboard-stat-card" data-tooltip={`${dashboardStats.bestRoutineStreak}-week streak for ${dashboardStats.bestRoutineStreakName} (your longest active routine streak)`}>
-              <span className="dashboard-stat-icon">📅</span>
-              <span className="dashboard-stat-value">{dashboardStats.bestRoutineStreak}</span>
-              <span className="dashboard-stat-label">wk streak</span>
-            </div>
-          )}
-          <div className="dashboard-stat-card" data-tooltip="Days since you started using Homebase">
-            <span className="dashboard-stat-icon">⚡</span>
-            <span className="dashboard-stat-value">{dashboardStats.daysOnPlatform}</span>
-            <span className="dashboard-stat-label">days</span>
-          </div>
-        </div>
-      )}
+      {statsBanner}
 
+      {quickNotesSection}
 
-      <section className="app-section quick-notes-section collapsible-section">
-        <h2
-          className="collapsible-header"
-          onClick={() => toggleSectionCollapsed('quickThoughts')}
-        >
-          <span className={`collapse-arrow ${collapsedSections.quickThoughts ? '' : 'open'}`}>▶</span>
-          Quick Thoughts
-        </h2>
-        {!collapsedSections.quickThoughts && (
-          <QuickNotes
-            content={quickNotesContent}
-            onSave={handleSaveQuickNotes}
-          />
-        )}
-      </section>
-
-      {(() => {
-          const now = new Date();
-          const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-          const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
-          const existing = monthlyReflections.find((r) => r.month === prevMonthStr);
-          const isComplete = existing
-            && existing.overall && existing.challenges && existing.lookingForward
-            && existing.ratingOverall && existing.ratingHealth && existing.ratingCareer
-            && existing.ratingFinances && existing.ratingFriends && existing.ratingFamily
-            && existing.ratingRomance && existing.ratingFun && existing.ratingGrowth
-            && existing.ratingMentalHealth && existing.ratingSpirituality
-            && existing.ratingEnvironment && existing.ratingProductivity;
-          const monthName = prevMonth.toLocaleDateString('en-US', { month: 'long' });
-          const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
-          const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`);
-          if (dismissed) return null;
-          return (
-            <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isFirstSunday && !isComplete ? 'urgent' : ''}`}>
-              <span className="monthly-reflection-banner-text">
-                {isComplete ? `${monthName} reflection` : `Monthly reflection for ${monthName}`}
-                {isComplete && <span className="monthly-reflection-check"> ✓</span>}
-              </span>
-              <div className="monthly-reflection-banner-actions">
-                <button onClick={() => {
-                  setMonthlyReflectionMonth(prevMonthStr);
-                  const r = monthlyReflections.find((r) => r.month === prevMonthStr);
-                  setCurrentMonthlyReflection(r || null);
-                  setShowMonthlyReflection(true);
-                }}>{isComplete ? 'Review' : 'Open'}</button>
-                <button className="monthly-reflection-dismiss" onClick={() => {
-                    localStorage.setItem(`monthlyReflectionDismissed-${prevMonthStr}`, 'true');
-                    setMonthlyReflectionMonth('');
-                  }}>Dismiss (find in Settings)</button>
-              </div>
-            </div>
-          );
-        })()}
+      {monthlyReflectionBanner}
 
       <main>
         <div className="column">
-          {journalNeedsAttention && (
-            <section className="app-section journal-attention collapsible-section">
-              <h2
-                className="collapsible-header"
-                onClick={() => toggleSectionCollapsed('gratitudeJournal')}
-              >
-                <span className={`collapse-arrow ${collapsedSections.gratitudeJournal ? '' : 'open'}`}>▶</span>
-                Gratitude Journal
-              </h2>
-              {!collapsedSections.gratitudeJournal && (
-                <JournalCard
-                  entry={todayJournal}
-                  onOpenEditor={() => setShowJournalEditor(true)}
-                  onViewAll={() => setCurrentPage('journal')}
-                />
-              )}
-            </section>
-          )}
-
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('todos')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.todos ? '' : 'open'}`}>▶</span>
-              To-Dos
-            </h2>
-            {!collapsedSections.todos && (
-              <TodoList
-                todos={todos}
-                sections={sections}
-                confettiEnabled={settings.confettiEnabled}
-                onToggleTodo={handleToggleTodo}
-                onDeleteTodo={handleDeleteTodo}
-                onEditTodo={handleEditTodo}
-                onIndentTodo={handleIndentTodo}
-                onAddTodo={handleAddTodo}
-                onAddTodoAfter={handleAddTodoAfter}
-                onAddTodoBefore={handleAddTodoBefore}
-                onMoveTodo={handleMoveTodo}
-                onReorderTodos={handleReorderTodos}
-                onToggleSection={handleToggleSection}
-                onDeleteSection={handleDeleteSection}
-                onEditSection={handleEditSection}
-                onAddSection={handleAddSection}
-                onReorderSections={handleReorderSections}
-                onMoveToToday={handleMoveToToday}
-                pushUndo={pushUndo}
-              />
-            )}
-          </section>
-
+          {journalBanner}
+          {todosSection}
           {!journalNeedsAttention && (
             <section className="app-section collapsible-section">
-              <h2
-                className="collapsible-header"
-                onClick={() => toggleSectionCollapsed('gratitudeJournal')}
-              >
+              <h2 className="collapsible-header" onClick={() => toggleSectionCollapsed('gratitudeJournal')}>
                 <span className={`collapse-arrow ${collapsedSections.gratitudeJournal ? '' : 'open'}`}>▶</span>
                 Gratitude Journal
               </h2>
               {!collapsedSections.gratitudeJournal && (
-                <JournalCard
-                  entry={todayJournal}
-                  onOpenEditor={() => setShowJournalEditor(true)}
-                  onViewAll={() => setCurrentPage('journal')}
-                />
+                <JournalCard entry={todayJournal} onOpenEditor={() => setShowJournalEditor(true)} onViewAll={() => setCurrentPage('journal')} />
               )}
             </section>
           )}
-
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('readingNotes')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.readingNotes ? '' : 'open'}`}>▶</span>
-              Reading Notes
-            </h2>
-            {!collapsedSections.readingNotes && (
-              <RandomInsightCard
-                note={randomNote}
-                onAddNote={() => setShowAddNoteModal(true)}
-                onViewAll={() => setShowViewNotesModal(true)}
-              />
-            )}
-          </section>
+          {readingNotesSection}
         </div>
 
         <div className="column">
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('routines')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.routines ? '' : 'open'}`}>▶</span>
-              Routines
-            </h2>
-            {!collapsedSections.routines && (
-              <RoutineList
-                routines={routines}
-                onIncrement={handleIncrement}
-                onDecrement={handleDecrement}
-                onDelete={handleDeleteRoutine}
-                onEdit={handleEditRoutine}
-                onReorder={handleReorderRoutines}
-                onAdd={handleAddRoutine}
-                confettiEnabled={settings.confettiEnabled}
-              />
-            )}
-          </section>
-
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('q1Goals')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.q1Goals ? '' : 'open'}`}>▶</span>
-              {editingGoalSection === 'q1Goals' ? (
-                <input
-                  type="text"
-                  className="goal-section-title-input"
-                  value={editingGoalSectionValue}
-                  onChange={(e) => setEditingGoalSectionValue(e.target.value)}
-                  onBlur={saveGoalSectionTitle}
-                  onKeyDown={handleGoalSectionKeyDown}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
-                />
-              ) : (
-                <span
-                  className="goal-section-title"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startEditingGoalSection('q1Goals');
-                  }}
-                >
-                  {goalSectionTitles.q1Goals}
-                </span>
-              )}
-            </h2>
-            {!collapsedSections.q1Goals && (
-              <GoalList
-                goals={quarterlyGoals}
-                onDelete={handleDeleteQuarterlyGoal}
-                onEdit={handleEditQuarterlyGoal}
-                onReorder={handleReorderQuarterlyGoals}
-                onAdd={handleAddQuarterlyGoal}
-                confettiEnabled={settings.confettiEnabled}
-              />
-            )}
-          </section>
-
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('yearlyGoals')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.yearlyGoals ? '' : 'open'}`}>▶</span>
-              {editingGoalSection === 'yearlyGoals' ? (
-                <input
-                  type="text"
-                  className="goal-section-title-input"
-                  value={editingGoalSectionValue}
-                  onChange={(e) => setEditingGoalSectionValue(e.target.value)}
-                  onBlur={saveGoalSectionTitle}
-                  onKeyDown={handleGoalSectionKeyDown}
-                  onClick={(e) => e.stopPropagation()}
-                  autoFocus
-                />
-              ) : (
-                <span
-                  className="goal-section-title"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    startEditingGoalSection('yearlyGoals');
-                  }}
-                >
-                  {goalSectionTitles.yearlyGoals}
-                </span>
-              )}
-            </h2>
-            {!collapsedSections.yearlyGoals && (
-              <GoalList
-                goals={yearlyGoals}
-                onDelete={handleDeleteYearlyGoal}
-                onEdit={handleEditYearlyGoal}
-                onReorder={handleReorderYearlyGoals}
-                onAdd={handleAddYearlyGoal}
-                confettiEnabled={settings.confettiEnabled}
-              />
-            )}
-          </section>
-
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('closeFriends')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.closeFriends ? '' : 'open'}`}>▶</span>
-              Close Friends
-            </h2>
-            {!collapsedSections.closeFriends && (
-              <FriendsCard
-                friends={friends}
-                onViewAll={() => setCurrentPage('friends')}
-              />
-            )}
-          </section>
-
-          <section className="app-section collapsible-section">
-            <h2
-              className="collapsible-header"
-              onClick={() => toggleSectionCollapsed('cookieJar')}
-            >
-              <span className={`collapse-arrow ${collapsedSections.cookieJar ? '' : 'open'}`}>▶</span>
-              Cookie Jar
-            </h2>
-            {!collapsedSections.cookieJar && (
-              <CookieJar
-                content={cookieJarContent}
-                onSave={handleSaveCookieJar}
-              />
-            )}
-          </section>
-
+          {routinesSection}
+          {q1GoalsSection}
+          {yearlyGoalsSection}
+          {friendsSection}
+          {cookieJarSection}
         </div>
       </main>
 
-      {showMonthlyReflection && (
-        <MonthlyReflectionModal
-          reflection={currentMonthlyReflection}
-          month={monthlyReflectionMonth}
-          onSave={handleSaveMonthlyReflection}
-          onClose={() => {
-            setShowMonthlyReflection(false);
-            if (monthlyReflectionMonth) {
-              localStorage.setItem(`monthlyReflectionDismissed-${monthlyReflectionMonth}`, 'true');
-            }
-          }}
-          onChangeMonth={handleChangeReflectionMonth}
-        />
-      )}
-
-      {showJournalEditor && (
-        <JournalEntryEditor
-          entry={todayJournal}
-          date={getTodayDate()}
-          onSave={handleSaveJournalEntry}
-          onClose={async () => { setShowJournalEditor(false); const updated = await getTodayJournalEntry(); setTodayJournal(updated ?? null); }}
-        />
-      )}
-
-      {showAddNoteModal && (
-        <AddNoteModal
-          onSave={handleAddNote}
-          onClose={() => setShowAddNoteModal(false)}
-        />
-      )}
-
-      {showViewNotesModal && (
-        <ViewNotesModal
-          notes={allNotes}
-          onClose={() => setShowViewNotesModal(false)}
-          onDelete={handleDeleteNote}
-          onAddNote={() => {
-            setShowViewNotesModal(false);
-            setShowAddNoteModal(true);
-          }}
-        />
-      )}
-
+      {modals}
 
       <footer className="app-footer">
         Made with ❤️ in San Francisco
