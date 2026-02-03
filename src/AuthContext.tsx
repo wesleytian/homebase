@@ -37,18 +37,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(!cachedUser);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    // Listen for auth changes first so we don't miss events
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const u = session?.user ?? null;
       setUser(u);
       setCurrentUserId(u?.id ?? null);
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Then check current session
+    supabase.auth.getSession().then(({ data: { session } }) => {
       const u = session?.user ?? null;
       setUser(u);
       setCurrentUserId(u?.id ?? null);
       setLoading(false);
+
+      // After OAuth redirect on mobile, the token exchange may not be done yet.
+      // Retry once if we have hash params but no session.
+      if (!u && (window.location.hash.includes('access_token') || window.location.search.includes('code='))) {
+        setTimeout(() => {
+          supabase.auth.getSession().then(({ data: { session: s } }) => {
+            if (s?.user) {
+              setUser(s.user);
+              setCurrentUserId(s.user.id);
+              setLoading(false);
+            }
+          });
+        }, 1000);
+      }
     });
 
     return () => subscription.unsubscribe();
@@ -60,6 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         provider: 'google',
         options: {
           redirectTo: window.location.origin,
+          queryParams: { prompt: 'select_account' },
         },
       });
       if (error) throw error;
@@ -74,6 +91,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const { error } = await supabase.auth.signOut();
       if (error) throw error;
       setCurrentUserId(null);
+      setUser(null);
+      localStorage.removeItem('homebase-cache');
     } catch (err) {
       console.error('Sign out failed:', err);
       alert('Sign out failed. Please try again.');
