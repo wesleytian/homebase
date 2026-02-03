@@ -13,6 +13,8 @@ interface Props {
   onCreateBelow?: (id: string, indent: number) => void;
   onCreateAbove?: (id: string, indent: number) => void;
   onDeleteAndFocusAbove?: (id: string) => void;
+  onFocusPrev?: (cursorPos: number) => void;
+  onFocusNext?: (cursorPos: number) => void;
   canIndent: boolean;
   confettiEnabled?: boolean;
   onDragStart: (e: React.DragEvent, id: string) => void;
@@ -38,6 +40,8 @@ export function TodoItem({
   onCreateBelow,
   onCreateAbove,
   onDeleteAndFocusAbove,
+  onFocusPrev,
+  onFocusNext,
   canIndent,
   confettiEnabled = false,
   onDragStart,
@@ -245,6 +249,12 @@ export function TodoItem({
       setTimeout(() => {
         textarea.setSelectionRange(newStart, newEnd);
       }, 0);
+    } else if (e.key === 'ArrowUp' && onFocusPrev) {
+      e.preventDefault();
+      onFocusPrev(inputRef.current?.selectionStart || 0);
+    } else if (e.key === 'ArrowDown' && onFocusNext) {
+      e.preventDefault();
+      onFocusNext(inputRef.current?.selectionStart || 0);
     } else if (e.key === 'Tab') {
       e.preventDefault();
       if (e.shiftKey) {
@@ -385,6 +395,14 @@ export function TodoItem({
               const sel = window.getSelection();
               if (!sel || sel.isCollapsed) return;
               document.execCommand('strikeThrough');
+            } else if (e.key === 'ArrowUp' && onFocusPrev) {
+              e.preventDefault();
+              const sel = window.getSelection();
+              onFocusPrev(sel?.anchorOffset || 0);
+            } else if (e.key === 'ArrowDown' && onFocusNext) {
+              e.preventDefault();
+              const sel = window.getSelection();
+              onFocusNext(sel?.anchorOffset || 0);
             } else if (e.key === 'Tab') {
               e.preventDefault();
               if (e.shiftKey) {

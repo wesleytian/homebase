@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Todo, ToggleSection } from './types';
 import { TodoItem, DropPosition } from './TodoItem';
 
@@ -92,6 +92,7 @@ export function TodoSection({
   onTodoTouchMove,
   onTodoTouchEnd,
 }: Props) {
+  const addInputRef = useRef<HTMLInputElement>(null);
   const [newTodo, setNewTodo] = useState('');
   const [todoHovering, setTodoHovering] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
@@ -141,6 +142,29 @@ export function TodoSection({
     onAddTodo(newTodo.trim(), section.id);
     setNewTodo('');
   };
+
+  const focusTodoAtIndex = useCallback((index: number, cursorPos?: number) => {
+    const todo = todos[index];
+    if (!todo) return;
+    setTimeout(() => {
+      const el = document.querySelector(`[data-drag-id="${todo.id}"] .todo-text-input, [data-drag-id="${todo.id}"] .todo-editable`) as HTMLElement;
+      if (el) {
+        el.focus();
+        if (el instanceof HTMLTextAreaElement) {
+          const pos = cursorPos !== undefined ? Math.min(cursorPos, el.value.length) : el.value.length;
+          el.setSelectionRange(pos, pos);
+        } else {
+          const sel = window.getSelection();
+          const textNode = el.firstChild;
+          if (sel && textNode) {
+            const len = textNode.textContent?.length || 0;
+            const pos = cursorPos !== undefined ? Math.min(cursorPos, len) : len;
+            sel.collapse(textNode, pos);
+          }
+        }
+      }
+    }, 0);
+  }, [todos]);
 
   const isSectionDropTarget = dragState.targetId === section.id && dragState.targetType === 'section';
   const isSectionDragging = dragState.draggedId === section.id && dragState.type === 'section';
@@ -276,6 +300,8 @@ export function TodoSection({
               onIndent={onIndentTodo}
               onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
               onCreateAbove={(id, indent) => onAddTodoBefore('', id, indent)}
+              onFocusPrev={index > 0 ? (pos: number) => focusTodoAtIndex(index - 1, pos) : undefined}
+              onFocusNext={index < todos.length - 1 ? (pos: number) => focusTodoAtIndex(index + 1, pos) : () => addInputRef.current?.focus()}
               onDeleteAndFocusAbove={index > 0 ? (id) => {
                 const prevTodo = todos[index - 1];
                 onDeleteTodo(id);
@@ -326,10 +352,18 @@ export function TodoSection({
           />
           <form className="section-add-form" onSubmit={handleAdd}>
               <input
+                ref={addInputRef}
                 type="text"
                 placeholder="Add todo..."
                 value={newTodo}
                 onChange={(e) => setNewTodo(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowUp' && todos.length > 0) {
+                    e.preventDefault();
+                    const pos = (e.target as HTMLInputElement).selectionStart || 0;
+                    focusTodoAtIndex(todos.length - 1, pos);
+                  }
+                }}
               />
           </form>
         </div>
