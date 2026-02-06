@@ -95,14 +95,6 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
     setAddingTo(null);
   };
 
-  if (routines.length === 0) {
-    return (
-      <div className="empty-state">
-        <p>No routines yet. Add your first routine above.</p>
-      </div>
-    );
-  }
-
   // Split routines into daily (5-7x/week for weekdays or everyday) and weekly (less than 5x)
   const dailyRoutines = routines.filter(r => r.frequencyPerWeek >= 5);
   const weeklyRoutines = routines.filter(r => r.frequencyPerWeek < 5);
