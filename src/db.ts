@@ -333,22 +333,30 @@ export async function updateTodo(todo: Todo): Promise<void> {
     updateData.completed_at = todo.completedAt;
   }
 
+  if (todo.isBullet !== undefined) {
+    updateData.is_bullet = todo.isBullet;
+  }
+
   const { error } = await supabase
     .from('todos')
     .update(updateData)
     .eq('id', todo.id);
 
-  if (error && !error.message?.includes('completed_at')) {
+  if (error && !error.message?.includes('completed_at') && !error.message?.includes('is_bullet')) {
     throw error;
   }
 }
 
-export async function updateTodoText(id: string, text: string): Promise<void> {
+export async function updateTodoText(id: string, text: string, isBullet?: boolean): Promise<void> {
+  const updateData: Record<string, unknown> = { text };
+  if (isBullet !== undefined) {
+    updateData.is_bullet = isBullet;
+  }
   const { error } = await supabase
     .from('todos')
-    .update({ text })
+    .update(updateData)
     .eq('id', id);
-  if (error) throw error;
+  if (error && !error.message?.includes('is_bullet')) throw error;
 }
 
 export async function updateTodoIndent(id: string, indent: number): Promise<void> {

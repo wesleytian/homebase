@@ -962,6 +962,51 @@ export function SettingsPage({ settings, onSettingsChange, onSortCompletedToBott
         </div>
 
         <div className="settings-section">
+          <h2>Display</h2>
+
+          <div className="settings-input-group">
+            <label className="settings-input-label">
+              <span className="settings-title">Font size</span>
+              <span className="settings-description">
+                Adjust the text size throughout the app
+              </span>
+            </label>
+            <div className="settings-radio-group">
+              <label className="settings-radio">
+                <input
+                  type="radio"
+                  name="fontSize"
+                  value="small"
+                  checked={settings.fontSize === 'small'}
+                  onChange={() => onSettingsChange({ ...settings, fontSize: 'small' })}
+                />
+                <span>Small</span>
+              </label>
+              <label className="settings-radio">
+                <input
+                  type="radio"
+                  name="fontSize"
+                  value="medium"
+                  checked={settings.fontSize === 'medium'}
+                  onChange={() => onSettingsChange({ ...settings, fontSize: 'medium' })}
+                />
+                <span>Medium</span>
+              </label>
+              <label className="settings-radio">
+                <input
+                  type="radio"
+                  name="fontSize"
+                  value="large"
+                  checked={settings.fontSize === 'large'}
+                  onChange={() => onSettingsChange({ ...settings, fontSize: 'large' })}
+                />
+                <span>Large</span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="settings-section">
           <h2>To-Dos</h2>
 
           <label className="settings-toggle">

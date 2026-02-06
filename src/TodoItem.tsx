@@ -8,7 +8,7 @@ interface Props {
   todo: Todo;
   onToggle: (id: string) => void;
   onDelete: (id: string) => void;
-  onEdit: (id: string, text: string) => void;
+  onEdit: (id: string, text: string, isBullet?: boolean) => void;
   onIndent: (id: string, indent: number) => void;
   onCreateBelow?: (id: string, indent: number) => void;
   onCreateAbove?: (id: string, indent: number) => void;
@@ -155,7 +155,41 @@ export function TodoItem({
   }, [localText, isFocused]);
 
   const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newText = e.target.value;
+    let newText = e.target.value;
+    const cursorPos = e.target.selectionStart;
+
+    // Convert "- " at start to bullet (remove the dash, bullet icon replaces checkbox)
+    if (newText.startsWith('- ') && !todo.isBullet) {
+      newText = newText.slice(2); // Remove "- " prefix
+      setLocalText(newText);
+      // Immediately save with isBullet: true
+      onEdit(todo.id, newText, true);
+      hasUnsavedChangesRef.current = false;
+      // Move cursor to start
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.setSelectionRange(0, 0);
+        }
+      }, 0);
+      return;
+    }
+
+    // Convert "-> " to "→ " anywhere in text
+    if (newText.includes('-> ')) {
+      const arrowIndex = newText.indexOf('-> ');
+      newText = newText.replace('-> ', '→ ');
+      setLocalText(newText);
+      debouncedSave(newText);
+      // Adjust cursor position (we removed 1 character)
+      setTimeout(() => {
+        if (inputRef.current) {
+          const newCursorPos = cursorPos > arrowIndex + 2 ? cursorPos - 1 : cursorPos;
+          inputRef.current.setSelectionRange(newCursorPos, newCursorPos);
+        }
+      }, 0);
+      return;
+    }
+
     setLocalText(newText);
     debouncedSave(newText);
   };
@@ -325,14 +359,18 @@ export function TodoItem({
           if (onSelect) onSelect(todo.id, e);
         }}
       >⋮⋮</span>
-      <label ref={checkboxRef} className={`todo-checkbox ${celebrating ? 'celebrating' : ''}`}>
-        <input
-          type="checkbox"
-          checked={todo.completed}
-          onChange={handleToggle}
-        />
-        <span className="checkmark"></span>
-      </label>
+      {todo.isBullet ? (
+        <span className="todo-bullet">•</span>
+      ) : (
+        <label ref={checkboxRef} className={`todo-checkbox ${celebrating ? 'celebrating' : ''}`}>
+          <input
+            type="checkbox"
+            checked={todo.completed}
+            onChange={handleToggle}
+          />
+          <span className="checkmark"></span>
+        </label>
+      )}
       {localText.includes('~~') ? (
         <div
           ref={editableRef}
@@ -355,7 +393,40 @@ export function TodoItem({
             hasUnsavedChangesRef.current = false;
           }}
           onInput={(e) => {
-            const newText = htmlToText(e.currentTarget.innerHTML);
+            let newText = htmlToText(e.currentTarget.innerHTML);
+            // Convert "- " at start to bullet (remove the dash, bullet icon replaces checkbox)
+            if (newText.startsWith('- ') && !todo.isBullet) {
+              newText = newText.slice(2); // Remove "- " prefix
+              e.currentTarget.innerHTML = textToHtml(newText);
+              // Move cursor to start
+              const range = document.createRange();
+              const sel = window.getSelection();
+              if (e.currentTarget.firstChild) {
+                range.setStart(e.currentTarget.firstChild, 0);
+                range.collapse(true);
+              } else {
+                range.selectNodeContents(e.currentTarget);
+                range.collapse(true);
+              }
+              sel?.removeAllRanges();
+              sel?.addRange(range);
+              // Immediately save with isBullet: true
+              onEdit(todo.id, newText, true);
+              hasUnsavedChangesRef.current = false;
+              return;
+            }
+            // Convert "-> " to "→ " anywhere in text
+            if (newText.includes('-> ')) {
+              newText = newText.replace('-> ', '→ ');
+              e.currentTarget.innerHTML = textToHtml(newText);
+              // Move cursor to end
+              const range = document.createRange();
+              const sel = window.getSelection();
+              range.selectNodeContents(e.currentTarget);
+              range.collapse(false);
+              sel?.removeAllRanges();
+              sel?.addRange(range);
+            }
             hasUnsavedChangesRef.current = true;
             if (saveTimeoutRef.current) clearTimeout(saveTimeoutRef.current);
             saveTimeoutRef.current = window.setTimeout(() => {

@@ -252,6 +252,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   const [showSleepModal, setShowSleepModal] = useState(false);
   const [currentPage, setCurrentPageState] = useState<Page>(getPageFromHash);
+  const [mobileQuickThoughtsOpen, setMobileQuickThoughtsOpen] = useState(false);
 
   const setCurrentPage = useCallback((page: Page) => {
     const newHash = page === 'dashboard' ? '' : `#${page}`;
@@ -277,6 +278,11 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       setShowSleepModal(true);
     }
   }, []);
+
+  // Apply font size setting to document
+  useEffect(() => {
+    document.documentElement.setAttribute('data-font-size', settings.fontSize || 'medium');
+  }, [settings.fontSize]);
 
   // Lazy-load journal entries when navigating to journal page
   useEffect(() => {
@@ -1063,26 +1069,27 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     deleteTodo(id).catch(onTodoError);
   };
 
-  const handleEditTodo = (id: string, text: string) => {
+  const handleEditTodo = (id: string, text: string, isBullet?: boolean) => {
     const todo = todos.find((t) => t.id === id);
     if (!todo) return;
 
     const previousText = todo.text;
-    if (text === previousText) return; // No change
+    const previousIsBullet = todo.isBullet;
+    if (text === previousText && isBullet === undefined) return; // No change
 
     // Update state immediately (optimistic) - use callback to merge with current state
-    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text } : t)));
+    setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text, ...(isBullet !== undefined ? { isBullet } : {}) } : t)));
 
     // Sync only the text field to DB (avoid overwriting other fields)
-    updateTodoText(id, text).catch(onTodoError);
+    updateTodoText(id, text, isBullet).catch(onTodoError);
 
     // Push undo action
     pushUndo({
       type: 'edit-todo',
       description: `Edit "${previousText.slice(0, 20)}" → "${text.slice(0, 20)}"`,
       undo: () => {
-        setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text: previousText } : t)));
-        updateTodoText(id, previousText).catch(onTodoError);
+        setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, text: previousText, isBullet: previousIsBullet } : t)));
+        updateTodoText(id, previousText, previousIsBullet).catch(onTodoError);
       },
     });
   };
@@ -1179,21 +1186,46 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       setSections((prev) => [todaySection!, ...prev]);
     }
 
-    // Get todos to move
-    const todosToMove = todos.filter(
-      (t) => t.sectionId === sourceSectionId && !t.completed
-    );
+    // Get todos in source section (in order)
+    const sectionTodos = todos.filter((t) => t.sectionId === sourceSectionId);
+    const uncompletedTodos = sectionTodos.filter((t) => !t.completed);
 
-    if (todosToMove.length === 0) return;
+    if (uncompletedTodos.length === 0) return;
+
+    // Build set of todos to move - start with uncompleted ones
+    const idsToMove = new Set(uncompletedTodos.map((t) => t.id));
+
+    // For each indented uncompleted todo, also include its completed parent for context
+    for (const todo of uncompletedTodos) {
+      if ((todo.indent ?? 0) === 0) continue;
+
+      // Find the parent (closest todo above with lower indent)
+      const todoIndex = sectionTodos.findIndex((t) => t.id === todo.id);
+      for (let i = todoIndex - 1; i >= 0; i--) {
+        const candidate = sectionTodos[i];
+        if ((candidate.indent ?? 0) < (todo.indent ?? 0)) {
+          // Found the parent - include it if completed
+          if (candidate.completed) {
+            idsToMove.add(candidate.id);
+          }
+          break;
+        }
+      }
+    }
+
+    const todosToMove = sectionTodos
+      .filter((t) => idsToMove.has(t.id))
+      .map((t) => ({ ...t, sectionId: todaySection!.id }));
 
     // Optimistic update - move todos and collapse source section immediately
-    setTodos((prev) =>
-      prev.map((t) =>
-        t.sectionId === sourceSectionId && !t.completed
-          ? { ...t, sectionId: todaySection!.id }
-          : t
-      )
-    );
+    setTodos((prev) => {
+      return prev.map((t) => {
+        if (idsToMove.has(t.id)) {
+          return { ...t, sectionId: todaySection!.id };
+        }
+        return t;
+      });
+    });
 
     setSections((prev) =>
       prev.map((s) =>
@@ -1203,9 +1235,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
     // Sync to DB in background (batch the updates)
     Promise.all([
-      ...todosToMove.map((todo) =>
-        updateTodo({ ...todo, sectionId: todaySection!.id })
-      ),
+      ...todosToMove.map((todo) => updateTodo(todo)),
       updateSection({
         ...sections.find((s) => s.id === sourceSectionId)!,
         collapsed: true,
@@ -1655,7 +1685,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     </section>
   );
 
-  const [mobileQuickThoughtsOpen, setMobileQuickThoughtsOpen] = useState(false);
   const quickThoughtsCollapsed = isMobile ? !mobileQuickThoughtsOpen : collapsedSections.quickThoughts;
   const quickNotesSection = (
     <section className="app-section quick-notes-section collapsible-section">

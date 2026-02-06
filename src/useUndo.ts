@@ -16,6 +16,8 @@ export function useUndo() {
   const redoStack = useRef<UndoAction[]>([]);
   const lastShakeTime = useRef<number>(0);
   const lastAcceleration = useRef({ x: 0, y: 0, z: 0 });
+  const lastUndoTime = useRef<number>(0);
+  const UNDO_DEBOUNCE = 100; // Minimum time between undos (ms)
 
   const pushUndo = useCallback((action: UndoAction) => {
     undoStack.current.push(action);
@@ -28,6 +30,13 @@ export function useUndo() {
   }, []);
 
   const undo = useCallback(() => {
+    // Debounce to prevent double-firing
+    const now = Date.now();
+    if (now - lastUndoTime.current < UNDO_DEBOUNCE) {
+      return null;
+    }
+    lastUndoTime.current = now;
+
     const action = undoStack.current.pop();
     if (action) {
       action.undo();

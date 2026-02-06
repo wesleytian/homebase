@@ -34,6 +34,7 @@ export interface Todo {
   indent: number; // 0 = no indent, 1 = one level, etc.
   createdAt: number;
   completedAt: number | null; // timestamp when marked complete
+  isBullet?: boolean; // true = bullet note (no checkbox), false/undefined = regular todo
 }
 
 export interface ToggleSection {
@@ -160,6 +161,7 @@ export interface Hobby {
 export interface AppSettings {
   autoSortCompletedTodos: boolean;
   confettiEnabled: boolean;
+  fontSize: 'small' | 'medium' | 'large';
   anthropicApiKey: string;
   mapboxToken: string;
   // AI context settings
@@ -249,8 +251,9 @@ export const COUNTRIES = [
 ];
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  autoSortCompletedTodos: true,
-  confettiEnabled: false,
+  autoSortCompletedTodos: false,
+  confettiEnabled: true,
+  fontSize: 'medium',
   anthropicApiKey: '',
   mapboxToken: '',
   userRole: '',

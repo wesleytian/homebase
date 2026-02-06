@@ -11,7 +11,7 @@ interface Props {
   confettiEnabled?: boolean;
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
-  onEditTodo: (id: string, text: string) => void;
+  onEditTodo: (id: string, text: string, isBullet?: boolean) => void;
   onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string | null) => void;
   onAddTodoAfter: (text: string, afterTodoId: string, indent?: number) => void;
@@ -42,15 +42,6 @@ const DATE_PATTERN = /^(Mon|Tues|Wed|Thurs|Fri|Sat|Sun),?\s*\d{1,2}\/\d{1,2}$/i;
 
 function isDateSection(name: string): boolean {
   return DATE_PATTERN.test(name);
-}
-
-function getTodayFormatted(): string {
-  const days = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
-  const now = new Date();
-  const dayName = days[now.getDay()];
-  const month = now.getMonth() + 1;
-  const date = now.getDate();
-  return `${dayName}, ${month}/${date}`;
 }
 
 export function TodoList({
@@ -681,31 +672,33 @@ export function TodoList({
 
       {(() => {
         if (expanded) return sections;
-        // Parse date sections and find the most recent one
-        const dateSections = sections.filter((s) => isDateSection(s.name));
-        let mostRecentId: string | null = null;
-        let mostRecentTime = 0;
+        // Filter to show today and previous day only (not older dates or future)
         const now = new Date();
         const currentYear = now.getFullYear();
-        for (const s of dateSections) {
-          const match = s.name.match(/(\d{1,2})\/(\d{1,2})$/);
-          if (match) {
-            const month = parseInt(match[1]) - 1;
-            const day = parseInt(match[2]);
-            const d = new Date(currentYear, month, day);
-            // Handle year boundary (e.g., Dec dates when it's Jan)
-            if (d.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
-              d.setFullYear(currentYear - 1);
-            }
-            if (d.getTime() > mostRecentTime) {
-              mostRecentTime = d.getTime();
-              mostRecentId = s.id;
-            }
-          }
-        }
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+
         return sections.filter((section) => {
           const isLater = section.name.toLowerCase() === 'later';
-          return section.id === mostRecentId || isLater;
+          if (isLater) return true;
+
+          // Check if it's a date section
+          if (!isDateSection(section.name)) return false;
+
+          const match = section.name.match(/(\d{1,2})\/(\d{1,2})$/);
+          if (!match) return false;
+
+          const month = parseInt(match[1]) - 1;
+          const day = parseInt(match[2]);
+          const sectionDate = new Date(currentYear, month, day);
+          // Handle year boundary (e.g., Dec dates when it's Jan)
+          if (sectionDate.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
+            sectionDate.setFullYear(currentYear - 1);
+          }
+
+          // Show if it's today or yesterday (not older or future)
+          const sectionTime = sectionDate.getTime();
+          return sectionTime >= yesterdayStart && sectionTime < todayStart + 24 * 60 * 60 * 1000;
         });
       })().map((section) => (
         <TodoSection
@@ -742,14 +735,37 @@ export function TodoList({
         />
       ))}
 
-      {sections.some((s) => isDateSection(s.name) && s.name !== getTodayFormatted() && s.name.toLowerCase() !== 'later') && (
-        <button
-          className="todo-expand-btn"
-          onClick={() => setExpanded(!expanded)}
-        >
-          {expanded ? 'Hide history' : 'Show history'}
-        </button>
-      )}
+      {(() => {
+        // Check if there are any older date sections (before yesterday) that would be hidden
+        const now = new Date();
+        const currentYear = now.getFullYear();
+        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+
+        const hasOlderDates = sections.some((s) => {
+          if (!isDateSection(s.name) || s.name.toLowerCase() === 'later') return false;
+          const match = s.name.match(/(\d{1,2})\/(\d{1,2})$/);
+          if (!match) return false;
+          const month = parseInt(match[1]) - 1;
+          const day = parseInt(match[2]);
+          const sectionDate = new Date(currentYear, month, day);
+          if (sectionDate.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
+            sectionDate.setFullYear(currentYear - 1);
+          }
+          return sectionDate.getTime() < yesterdayStart;
+        });
+
+        if (!hasOlderDates) return null;
+
+        return (
+          <button
+            className="todo-expand-btn"
+            onClick={() => setExpanded(!expanded)}
+          >
+            {expanded ? 'Hide history' : 'Show history'}
+          </button>
+        );
+      })()}
     </div>
   );
 }

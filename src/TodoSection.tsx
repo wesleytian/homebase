@@ -38,7 +38,7 @@ interface Props {
   onEditSection: (id: string, name: string) => void;
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
-  onEditTodo: (id: string, text: string) => void;
+  onEditTodo: (id: string, text: string, isBullet?: boolean) => void;
   onIndentTodo: (id: string, indent: number) => void;
   onAddTodo: (text: string, sectionId: string) => void;
   onAddTodoAfter: (text: string, afterTodoId: string, indent?: number) => void;
@@ -99,7 +99,8 @@ export function TodoSection({
   const [editValue, setEditValue] = useState(section.name);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [countFlash, setCountFlash] = useState(false);
-  const completedCount = useMemo(() => todos.filter(t => t.completed).length, [todos]);
+  const checkableTodos = useMemo(() => todos.filter(t => !t.isBullet), [todos]);
+  const completedCount = useMemo(() => checkableTodos.filter(t => t.completed).length, [checkableTodos]);
   const prevCompletedRef = useRef(completedCount);
 
   useEffect(() => {
@@ -250,7 +251,7 @@ export function TodoSection({
             {section.name}
           </span>
         )}
-        <span className={'section-count' + (countFlash ? ' count-flash' : '')}>{todos.filter(t => t.completed).length}/{todos.length}</span>
+        <span className={'section-count' + (countFlash ? ' count-flash' : '')}>{completedCount}/{checkableTodos.length}</span>
         {isDateSection(section.name) && section.name !== getTodayFormatted() && todos.some(t => !t.completed) && (
           <button
             className="section-move-today"
