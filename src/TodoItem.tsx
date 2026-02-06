@@ -224,9 +224,10 @@ export function TodoItem({
         onEdit(todo.id, trimmed);
       }
       hasUnsavedChangesRef.current = false;
-      // If cursor is at the start, create new todo above; otherwise below
+      // If cursor is at the start of non-empty todo, create new todo above; otherwise below
       const cursorAtStart = inputRef.current?.selectionStart === 0 && inputRef.current?.selectionEnd === 0;
-      if (cursorAtStart && onCreateAbove) {
+      const hasText = localText.length > 0;
+      if (cursorAtStart && hasText && onCreateAbove) {
         onCreateAbove(todo.id, indent);
       } else if (onCreateBelow) {
         onCreateBelow(todo.id, indent);
@@ -449,10 +450,11 @@ export function TodoItem({
                 onEdit(todo.id, newText);
               }
               hasUnsavedChangesRef.current = false;
-              // Check if cursor is at start
+              // Check if cursor is at start of non-empty todo
               const sel = window.getSelection();
               const cursorAtStart = sel && sel.anchorOffset === 0 && sel.focusOffset === 0 && sel.anchorNode === e.currentTarget.firstChild;
-              if (cursorAtStart && onCreateAbove) {
+              const hasText = newText.length > 0;
+              if (cursorAtStart && hasText && onCreateAbove) {
                 onCreateAbove(todo.id, indent);
               } else if (onCreateBelow) {
                 onCreateBelow(todo.id, indent);
