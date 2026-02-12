@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { RoutineWithProgress } from './types';
 import { RoutineCard, DropPosition } from './RoutineCard';
+import { useTouchDrag } from './useTouchDrag';
 
 interface Props {
   routines: RoutineWithProgress[];
@@ -11,6 +12,12 @@ interface Props {
   onReorder: (routines: RoutineWithProgress[]) => void;
   onAdd: (name: string, frequency: number, metadata: string) => void;
   confettiEnabled?: boolean;
+  // Week navigation
+  weekOffset?: number;
+  weekDateRange?: string;
+  onPrevWeek?: () => void;
+  onNextWeek?: () => void;
+  canGoPrev?: boolean;
 }
 
 interface DragState {
@@ -19,7 +26,7 @@ interface DragState {
   position: DropPosition;
 }
 
-export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder, onAdd, confettiEnabled = false }: Props) {
+export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder, onAdd, confettiEnabled = false, weekOffset = 0, weekDateRange, onPrevWeek, onNextWeek, canGoPrev = true }: Props) {
   const [addingTo, setAddingTo] = useState<'daily' | 'weekly-weekday' | 'weekly-weekend' | null>(null);
   const [newName, setNewName] = useState('');
   const [dragState, setDragState] = useState<DragState>({
@@ -28,6 +35,21 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
     position: null,
   });
   const draggedIdRef = useRef<string | null>(null);
+
+  // Touch drag for mobile
+  const touchDrag = useTouchDrag({
+    items: routines,
+    getItemId: (r) => r.id,
+    targetSelector: '.routine-card-compact',
+    onReorder: onReorder,
+    onDragStateChange: (draggedId, targetId, position) => {
+      if (draggedId) {
+        setDragState({ draggedId, targetId, position });
+      } else {
+        setDragState({ draggedId: null, targetId: null, position: null });
+      }
+    },
+  });
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     draggedIdRef.current = id;
@@ -113,11 +135,38 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
       onDrop={handleDrop}
       dropPosition={dragState.targetId === routine.id ? dragState.position : null}
       confettiEnabled={confettiEnabled}
+      isPastWeek={weekOffset < 0}
+      onTouchStart={touchDrag.handleTouchStart}
+      onTouchMove={touchDrag.handleTouchMove}
+      onTouchEnd={touchDrag.handleTouchEnd}
     />
   );
 
   return (
     <div className="routine-list" onDragEnd={handleDragEnd}>
+      {/* Week navigation */}
+      {onPrevWeek && onNextWeek && (
+        <div className="routine-week-nav">
+          <button
+            className="routine-week-arrow"
+            onClick={onPrevWeek}
+            disabled={!canGoPrev}
+            aria-label="Previous week"
+          >
+            &lt;
+          </button>
+          <span className="routine-week-label">{weekDateRange || 'This Week'}</span>
+          <button
+            className="routine-week-arrow"
+            onClick={onNextWeek}
+            disabled={weekOffset === 0}
+            aria-label="Next week"
+          >
+            &gt;
+          </button>
+        </div>
+      )}
+
       <div className="routine-section-header">
         <span className="routine-section-label">Daily</span>
         <button className="routine-add-inline" onClick={() => { setAddingTo('daily'); setNewName(''); }}>+</button>

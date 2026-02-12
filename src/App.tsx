@@ -67,6 +67,7 @@ import {
   getMonthlyReflection,
   createOrUpdateMonthlyReflection,
   logError,
+  getEarliestCompletionWeek,
 } from './db';
 import { RoutineList } from './RoutineList';
 import { TodoList } from './TodoList';
@@ -239,6 +240,37 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [loading, setLoading] = useState(!cachedData);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
+  const [routineWeekOffset, setRoutineWeekOffset] = useState(0);
+  const [earliestWeekStart, setEarliestWeekStart] = useState<number | null>(null);
+
+  // Helper to get week start for a given offset
+  const getWeekStartForOffset = useCallback((offset: number) => {
+    const currentWeek = getWeekStart();
+    return currentWeek + offset * 7 * 24 * 60 * 60 * 1000;
+  }, []);
+
+  // Helper to format week date range (e.g., "Feb 3 - 9")
+  const getWeekDateRange = useCallback((offset: number) => {
+    const weekStartDate = new Date(getWeekStartForOffset(offset));
+    const weekEndDate = new Date(weekStartDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const startMonth = months[weekStartDate.getMonth()];
+    const endMonth = months[weekEndDate.getMonth()];
+    const startDay = weekStartDate.getDate();
+    const endDay = weekEndDate.getDate();
+    if (startMonth === endMonth) {
+      return `${startMonth} ${startDay} - ${endDay}`;
+    }
+    return `${startMonth} ${startDay} - ${endMonth} ${endDay}`;
+  }, [getWeekStartForOffset]);
+
+  // Calculate minimum week offset (can't go before earliest completion)
+  const minWeekOffset = useCallback(() => {
+    if (!earliestWeekStart) return -52; // Default: allow up to 1 year back
+    const currentWeek = getWeekStart();
+    const weeksDiff = Math.floor((earliestWeekStart - currentWeek) / (7 * 24 * 60 * 60 * 1000));
+    return weeksDiff;
+  }, [earliestWeekStart]);
 
   // Hash-based routing for browser back/forward support
   type Page = 'dashboard' | 'journal' | 'friends' | 'settings' | 'privacy' | 'terms';
@@ -421,6 +453,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
     applyData(allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections, stats);
 
+    // Fetch earliest completion week for navigation limits (non-blocking)
+    getEarliestCompletionWeek().then(setEarliestWeekStart).catch(() => {});
+
     // Cache for stale-while-revalidate on next load
     try {
       localStorage.setItem('dashboardCache', JSON.stringify({
@@ -520,6 +555,60 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return false;
   })();
 
+  // Refresh routine data for a specific week offset
+  const refreshRoutinesForWeek = useCallback(async (offset: number) => {
+    try {
+      const targetWeekStart = getWeekStartForOffset(offset);
+      const allRoutines = await getAllRoutines();
+      const completions = await getCompletionsForWeek(targetWeekStart);
+
+      const completionCounts = new Map<string, number>();
+      for (const c of completions) {
+        completionCounts.set(c.routineId, (completionCounts.get(c.routineId) || 0) + 1);
+      }
+
+      const currentWeekStart = getWeekStart();
+      const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
+
+      // For past weeks, completedToday doesn't apply
+      const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => {
+        const thisWeekCount = completionCounts.get(r.id) || 0;
+        const streakAtRisk = offset === 0 && r.currentStreak > 0 && thisWeekCount < r.frequencyPerWeek && (r.streakGraceUsed || r.lastStreakWeek === prevWeekStart);
+        return {
+          ...r,
+          completedThisWeek: thisWeekCount,
+          completedToday: false, // Past weeks don't track "today"
+          streakAtRisk,
+        };
+      });
+
+      setRoutines(routinesWithProgress);
+    } catch (err) {
+      showError("Couldn't load routine data.", 'routines', err);
+    }
+  }, [getWeekStartForOffset, showError]);
+
+  // Week navigation handlers
+  const handlePrevWeek = useCallback(() => {
+    const minOffset = minWeekOffset();
+    if (routineWeekOffset <= minOffset) return; // Can't go further back
+    const newOffset = routineWeekOffset - 1;
+    setRoutineWeekOffset(newOffset);
+    refreshRoutinesForWeek(newOffset);
+  }, [routineWeekOffset, refreshRoutinesForWeek, minWeekOffset]);
+
+  const handleNextWeek = useCallback(() => {
+    if (routineWeekOffset >= 0) return;
+    const newOffset = routineWeekOffset + 1;
+    setRoutineWeekOffset(newOffset);
+    if (newOffset === 0) {
+      // Going back to current week - reload fresh data
+      loadData();
+    } else {
+      refreshRoutinesForWeek(newOffset);
+    }
+  }, [routineWeekOffset, refreshRoutinesForWeek]);
+
   // Routine handlers
   const handleAddRoutine = async (name: string, frequency: number, metadata: string) => {
     trackEvent('action', { action: 'routine_created', name, frequency });
@@ -536,14 +625,16 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const target = routine.frequencyPerWeek;
     const currentWeekStart = getWeekStart();
     const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
+    const targetWeekStart = getWeekStartForOffset(routineWeekOffset);
+    const isCurrentWeek = routineWeekOffset === 0;
 
     let newStreak = routine.currentStreak;
     let newLongest = routine.longestStreak;
     let newLastStreakWeek = routine.lastStreakWeek;
     let newGraceUsed = routine.streakGraceUsed;
 
-    // Check if this completion just met the weekly target
-    if (newCompletedThisWeek === target && routine.completedThisWeek < target) {
+    // Only update streaks for current week
+    if (isCurrentWeek && newCompletedThisWeek === target && routine.completedThisWeek < target) {
       if (routine.lastStreakWeek === currentWeekStart) {
         // Already counted this week
       } else if (routine.lastStreakWeek === prevWeekStart || (routine.streakGraceUsed && routine.currentStreak > 0)) {
@@ -570,7 +661,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ? {
               ...r,
               completedThisWeek: newCompletedThisWeek,
-              completedToday: true,
+              completedToday: isCurrentWeek ? true : r.completedToday,
               currentStreak: newStreak,
               longestStreak: newLongest,
               lastStreakWeek: newLastStreakWeek,
@@ -602,7 +693,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               : r
           )
         );
-        removeLastCompletion(id, weekStart).catch(onRoutineError);
+        removeLastCompletion(id, targetWeekStart).catch(onRoutineError);
       },
       redo: () => {
         setRoutines((prev) =>
@@ -611,7 +702,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               ? {
                   ...r,
                   completedThisWeek: newCompletedThisWeek,
-                  completedToday: true,
+                  completedToday: isCurrentWeek ? true : r.completedToday,
                   currentStreak: newStreak,
                   longestStreak: newLongest,
                   lastStreakWeek: newLastStreakWeek,
@@ -621,14 +712,16 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               : r
           )
         );
-        addCompletion(id).catch(onRoutineError);
-        updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(onRoutineError);
+        addCompletion(id, targetWeekStart).catch(onRoutineError);
+        if (isCurrentWeek) {
+          updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(onRoutineError);
+        }
       },
     });
 
     // Sync to DB
-    addCompletion(id).catch(onRoutineError);
-    if (newCompletedThisWeek === target && routine.completedThisWeek < target) {
+    addCompletion(id, targetWeekStart).catch(onRoutineError);
+    if (isCurrentWeek && newCompletedThisWeek === target && routine.completedThisWeek < target) {
       updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(onRoutineError);
     }
   };
@@ -637,8 +730,11 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const routine = routines.find((r) => r.id === id);
     if (!routine || routine.completedThisWeek <= 0) return;
 
-    // Calculate if we're removing today's only completion
-    const wasCompletedToday = routine.completedToday;
+    const targetWeekStart = getWeekStartForOffset(routineWeekOffset);
+    const isCurrentWeek = routineWeekOffset === 0;
+
+    // Calculate if we're removing today's only completion (only relevant for current week)
+    const wasCompletedToday = isCurrentWeek && routine.completedToday;
 
     // Optimistic update - update state immediately
     setRoutines((prev) =>
@@ -648,7 +744,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               ...r,
               completedThisWeek: Math.max(0, r.completedThisWeek - 1),
               // Only mark as not completed today if this was the only completion today
-              // (simplification: we assume one completion per day for daily tracking)
               completedToday: wasCompletedToday ? false : r.completedToday,
             }
           : r
@@ -673,7 +768,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           )
         );
         // Sync to DB in background
-        addCompletion(id).catch(onRoutineError);
+        addCompletion(id, targetWeekStart).catch(onRoutineError);
       },
       redo: () => {
         setRoutines((prev) =>
@@ -687,12 +782,12 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               : r
           )
         );
-        removeLastCompletion(id, weekStart).catch(onRoutineError);
+        removeLastCompletion(id, targetWeekStart).catch(onRoutineError);
       },
     });
 
     // Sync to DB in background
-    removeLastCompletion(id, weekStart).catch(onRoutineError);
+    removeLastCompletion(id, targetWeekStart).catch(onRoutineError);
   };
 
   const handleDeleteRoutine = async (id: string) => {
@@ -1638,7 +1733,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       {!collapsedSections.routines && (
         <RoutineList routines={routines} onIncrement={handleIncrement} onDecrement={handleDecrement}
           onDelete={handleDeleteRoutine} onEdit={handleEditRoutine} onReorder={handleReorderRoutines}
-          onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled} />
+          onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled}
+          weekOffset={routineWeekOffset} weekDateRange={getWeekDateRange(routineWeekOffset)}
+          onPrevWeek={handlePrevWeek} onNextWeek={handleNextWeek} canGoPrev={routineWeekOffset > minWeekOffset()} />
       )}
     </section>
   );
@@ -1838,7 +1935,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               {statsBanner}
               <RoutineList routines={routines} onIncrement={handleIncrement} onDecrement={handleDecrement}
                 onDelete={handleDeleteRoutine} onEdit={handleEditRoutine} onReorder={handleReorderRoutines}
-                onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled} />
+                onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled}
+                weekOffset={routineWeekOffset} weekDateRange={getWeekDateRange(routineWeekOffset)}
+                onPrevWeek={handlePrevWeek} onNextWeek={handleNextWeek} canGoPrev={routineWeekOffset > minWeekOffset()} />
             </>
           )}
           {mobileTab === 'goals' && (

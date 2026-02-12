@@ -68,7 +68,7 @@ export function TodoList({
   const [newSection, setNewSection] = useState('');
   const [showSectionInput, setShowSectionInput] = useState(false);
   const [unsectionedHover, setUnsectionedHover] = useState(false);
-  const [expanded, setExpanded] = useState(false);
+  const [visibleSectionCount, setVisibleSectionCount] = useState(2);
   const [dragState, setDragState] = useState<DragState>({
     type: null,
     draggedId: null,
@@ -82,18 +82,44 @@ export function TodoList({
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [lastSelectedId, setLastSelectedId] = useState<string | null>(null);
+  const [focusedTodoId, setFocusedTodoId] = useState<string | null>(null);
+
+  // Handle focus change from TodoItem
+  const handleFocusChange = useCallback((id: string | null) => {
+    setFocusedTodoId(id);
+    if (id) {
+      setLastSelectedId(id);
+    }
+  }, []);
+
+  // Clear selection when clicking outside todos
+  const handleContainerClick = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    // Don't clear if clicking on a todo item or its children
+    if (target.closest('.todo-item') || target.closest('.section-header') || target.closest('.section-add-form')) {
+      return;
+    }
+    // Don't clear if modifier keys are held
+    if (e.shiftKey || e.metaKey || e.ctrlKey) {
+      return;
+    }
+    setSelectedIds(new Set());
+  }, []);
 
   // Handle click on todo for selection
   const handleTodoSelect = useCallback((id: string, e: React.MouseEvent) => {
-    if (e.shiftKey && lastSelectedId) {
-      // Shift+click: select range
-      const lastIndex = todos.findIndex((t) => t.id === lastSelectedId);
+    // Use focused todo as anchor for shift+click if available
+    const anchorId = focusedTodoId || lastSelectedId;
+
+    if (e.shiftKey && anchorId) {
+      // Shift+click: select range from anchor to clicked
+      const anchorIndex = todos.findIndex((t) => t.id === anchorId);
       const currentIndex = todos.findIndex((t) => t.id === id);
-      if (lastIndex !== -1 && currentIndex !== -1) {
-        const start = Math.min(lastIndex, currentIndex);
-        const end = Math.max(lastIndex, currentIndex);
+      if (anchorIndex !== -1 && currentIndex !== -1) {
+        const start = Math.min(anchorIndex, currentIndex);
+        const end = Math.max(anchorIndex, currentIndex);
         const rangeIds = todos.slice(start, end + 1).map((t) => t.id);
-        setSelectedIds(new Set([...selectedIds, ...rangeIds]));
+        setSelectedIds(new Set(rangeIds));
       }
     } else if (e.metaKey || e.ctrlKey) {
       // Cmd/Ctrl+click: toggle selection
@@ -110,7 +136,7 @@ export function TodoList({
       setSelectedIds(new Set([id]));
       setLastSelectedId(id);
     }
-  }, [todos, selectedIds, lastSelectedId]);
+  }, [todos, selectedIds, lastSelectedId, focusedTodoId]);
 
   // Keyboard shortcuts for selected todos
   useEffect(() => {
@@ -593,7 +619,7 @@ export function TodoList({
   const unsectionedTodos = todos.filter((t) => t.sectionId === null);
 
   return (
-    <div className="todo-list" onDragEnd={handleDragEnd}>
+    <div className="todo-list" onDragEnd={handleDragEnd} onClick={handleContainerClick}>
       {showSectionInput ? (
         <form className="section-add-form" onSubmit={handleAddSection}>
           <input
@@ -663,42 +689,66 @@ export function TodoList({
             isDragging={dragState.draggedId === todo.id || (dragRef.current?.selectedIds?.has(todo.id) === true && dragState.type === 'todo')}
             isSelected={selectedIds.has(todo.id)}
             onSelect={handleTodoSelect}
+            onFocusChange={handleFocusChange}
             onTouchStart={touchDrag.handleTouchStart}
             onTouchMove={touchDrag.handleTouchMove}
             onTouchEnd={touchDrag.handleTouchEnd}
+            dragCount={dragState.draggedId === todo.id ? (dragRef.current?.selectedIds?.size || 1) : 1}
           />
         ))}
       </div>
 
       {(() => {
-        if (expanded) return sections;
-        // Filter to show today and previous day only (not older dates or future)
+        // Show today's section (if exists) + recent sections with todos up to visibleSectionCount
         const now = new Date();
         const currentYear = now.getFullYear();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+        const todayStr = `${now.getMonth() + 1}/${now.getDate()}`;
 
-        return sections.filter((section) => {
-          const isLater = section.name.toLowerCase() === 'later';
-          if (isLater) return true;
-
-          // Check if it's a date section
-          if (!isDateSection(section.name)) return false;
-
+        // Helper to parse section date
+        const parseSectionDate = (section: ToggleSection) => {
           const match = section.name.match(/(\d{1,2})\/(\d{1,2})$/);
-          if (!match) return false;
-
+          if (!match) return null;
           const month = parseInt(match[1]) - 1;
           const day = parseInt(match[2]);
           const sectionDate = new Date(currentYear, month, day);
-          // Handle year boundary (e.g., Dec dates when it's Jan)
           if (sectionDate.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
             sectionDate.setFullYear(currentYear - 1);
           }
+          return sectionDate.getTime();
+        };
 
-          // Show if it's today or yesterday (not older or future)
-          const sectionTime = sectionDate.getTime();
-          return sectionTime >= yesterdayStart && sectionTime < todayStart + 24 * 60 * 60 * 1000;
+        // Find today's section (even if empty)
+        const todaySection = sections.find((s) => {
+          if (!isDateSection(s.name)) return false;
+          return s.name.endsWith(todayStr);
+        });
+
+        // Get date sections with todos (excluding today since we handle it separately)
+        const dateSectionsWithTodos = sections
+          .filter((section) => {
+            if (section.name.toLowerCase() === 'later') return false;
+            if (!isDateSection(section.name)) return false;
+            if (todaySection && section.id === todaySection.id) return false;
+            const sectionTodos = todos.filter((t) => t.sectionId === section.id);
+            return sectionTodos.length > 0;
+          })
+          .map((section) => ({ section, date: parseSectionDate(section) || 0 }))
+          .sort((a, b) => b.date - a.date);
+
+        // Build the list: today (if exists) + fill up to visibleSectionCount with recent sections
+        const recentIds = new Set<string>();
+        if (todaySection) {
+          recentIds.add(todaySection.id);
+        }
+        // Add recent sections with todos until we reach visibleSectionCount
+        for (const { section } of dateSectionsWithTodos) {
+          if (recentIds.size >= visibleSectionCount) break;
+          recentIds.add(section.id);
+        }
+
+        return sections.filter((section) => {
+          if (section.name.toLowerCase() === 'later') return true;
+          return recentIds.has(section.id);
         });
       })().map((section) => (
         <TodoSection
@@ -729,41 +779,52 @@ export function TodoList({
           dragState={dragState}
           selectedIds={selectedIds}
           onTodoSelect={handleTodoSelect}
+          onTodoFocusChange={handleFocusChange}
           onTodoTouchStart={touchDrag.handleTouchStart}
           onTodoTouchMove={touchDrag.handleTouchMove}
           onTodoTouchEnd={touchDrag.handleTouchEnd}
+          dragSelectedCount={dragRef.current?.selectedIds?.size || 1}
         />
       ))}
 
       {(() => {
-        // Check if there are any older date sections (before yesterday) that would be hidden
+        // Count total date sections with todos (or today's section)
         const now = new Date();
-        const currentYear = now.getFullYear();
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-        const yesterdayStart = todayStart - 24 * 60 * 60 * 1000;
+        const todayStr = `${now.getMonth() + 1}/${now.getDate()}`;
+        const todaySection = sections.find((s) => isDateSection(s.name) && s.name.endsWith(todayStr));
 
-        const hasOlderDates = sections.some((s) => {
+        const dateSectionsWithTodos = sections.filter((s) => {
           if (!isDateSection(s.name) || s.name.toLowerCase() === 'later') return false;
-          const match = s.name.match(/(\d{1,2})\/(\d{1,2})$/);
-          if (!match) return false;
-          const month = parseInt(match[1]) - 1;
-          const day = parseInt(match[2]);
-          const sectionDate = new Date(currentYear, month, day);
-          if (sectionDate.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
-            sectionDate.setFullYear(currentYear - 1);
-          }
-          return sectionDate.getTime() < yesterdayStart;
+          if (todaySection && s.id === todaySection.id) return true; // Always count today
+          const sectionTodos = todos.filter((t) => t.sectionId === s.id);
+          return sectionTodos.length > 0;
         });
 
-        if (!hasOlderDates) return null;
+        const totalCount = dateSectionsWithTodos.length;
+        const hasMore = totalCount > visibleSectionCount;
+        const canShowLess = visibleSectionCount > 2;
+
+        if (!hasMore && !canShowLess) return null;
 
         return (
-          <button
-            className="todo-expand-btn"
-            onClick={() => setExpanded(!expanded)}
-          >
-            {expanded ? 'Hide history' : 'Show history'}
-          </button>
+          <div className="todo-expand-buttons">
+            {hasMore && (
+              <button
+                className="todo-expand-btn"
+                onClick={() => setVisibleSectionCount((c) => c + 2)}
+              >
+                Show more
+              </button>
+            )}
+            {canShowLess && (
+              <button
+                className="todo-expand-btn"
+                onClick={() => setVisibleSectionCount(2)}
+              >
+                Show less
+              </button>
+            )}
+          </div>
         );
       })()}
     </div>

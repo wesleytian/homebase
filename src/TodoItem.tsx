@@ -26,9 +26,11 @@ interface Props {
   isDragging: boolean;
   isSelected?: boolean;
   onSelect?: (id: string, e: React.MouseEvent) => void;
+  onFocusChange?: (id: string | null) => void;
   onTouchStart?: (e: React.TouchEvent, id: string) => void;
   onTouchMove?: (e: React.TouchEvent) => void;
   onTouchEnd?: () => void;
+  dragCount?: number; // Number of items being dragged (for visual)
 }
 
 export function TodoItem({
@@ -53,9 +55,11 @@ export function TodoItem({
   isDragging,
   isSelected = false,
   onSelect,
+  onFocusChange,
   onTouchStart,
   onTouchMove,
   onTouchEnd,
+  dragCount = 1,
 }: Props) {
   const [localText, setLocalText] = useState(todo.text);
   const [showConfetti, setShowConfetti] = useState<{ x: number; y: number } | null>(null);
@@ -321,6 +325,9 @@ export function TodoItem({
     onToggle(todo.id);
   };
 
+  // Check if this is an empty spacer line
+  const isEmptyLine = todo.text === '' && !isFocused;
+
   return (
     <>
       {showConfetti && (
@@ -331,7 +338,7 @@ export function TodoItem({
         />
       )}
     <div
-      className={`todo-item ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${isSelected ? 'selected' : ''}`}
+      className={`todo-item ${isEmptyLine ? 'empty-line' : ''} ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${isSelected ? 'selected' : ''}`}
       style={{
         marginLeft: `${indent * 24}px`,
         '--drop-indent-offset': dropIndent !== null ? `${(dropIndent - indent) * 24}px` : '0px'
@@ -348,29 +355,37 @@ export function TodoItem({
           e.preventDefault();
           onSelect(todo.id, e);
         }
+        // Click on empty line to focus it
+        if (isEmptyLine) {
+          inputRef.current?.focus();
+        }
       }}
       onTouchStart={onTouchStart ? (e) => onTouchStart(e, todo.id) : undefined}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <span
-        className="drag-handle"
-        onClick={(e) => {
-          e.stopPropagation();
-          if (onSelect) onSelect(todo.id, e);
-        }}
-      >⋮⋮</span>
-      {todo.isBullet ? (
-        <span className="todo-bullet">•</span>
-      ) : (
-        <label ref={checkboxRef} className={`todo-checkbox ${celebrating ? 'celebrating' : ''}`}>
-          <input
-            type="checkbox"
-            checked={todo.completed}
-            onChange={handleToggle}
-          />
-          <span className="checkmark"></span>
-        </label>
+      {!isEmptyLine && (
+        <>
+          <span
+            className="drag-handle"
+            onClick={(e) => {
+              e.stopPropagation();
+              if (onSelect) onSelect(todo.id, e);
+            }}
+          >⋮⋮</span>
+          {todo.isBullet ? (
+            <span className="todo-bullet">•</span>
+          ) : (
+            <label ref={checkboxRef} className={`todo-checkbox ${celebrating ? 'celebrating' : ''}`}>
+              <input
+                type="checkbox"
+                checked={todo.completed}
+                onChange={handleToggle}
+              />
+              <span className="checkmark"></span>
+            </label>
+          )}
+        </>
       )}
       {localText.includes('~~') ? (
         <div
@@ -378,9 +393,10 @@ export function TodoItem({
           className={`todo-editable ${todo.completed ? 'completed' : ''}`}
           contentEditable
           suppressContentEditableWarning
-          onFocus={() => setIsFocused(true)}
+          onFocus={() => { setIsFocused(true); onFocusChange?.(todo.id); }}
           onBlur={(e) => {
             setIsFocused(false);
+            onFocusChange?.(null);
             if (saveTimeoutRef.current) {
               clearTimeout(saveTimeoutRef.current);
               saveTimeoutRef.current = null;
@@ -492,13 +508,16 @@ export function TodoItem({
           className={`todo-text-input ${todo.completed ? 'completed' : ''}`}
           value={localText}
           onChange={handleChange}
-          onFocus={() => setIsFocused(true)}
-          onBlur={handleBlur}
+          onFocus={() => { setIsFocused(true); onFocusChange?.(todo.id); }}
+          onBlur={() => { handleBlur(); onFocusChange?.(null); }}
           onKeyDown={handleKeyDown}
           rows={1}
         />
       )}
       <button className="todo-delete" onClick={() => onDelete(todo.id)}>×</button>
+      {isDragging && dragCount > 1 && (
+        <span className="todo-drag-count">+{dragCount - 1}</span>
+      )}
     </div>
     </>
   );

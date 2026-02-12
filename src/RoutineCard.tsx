@@ -16,6 +16,10 @@ interface Props {
   onDrop: (e: React.DragEvent, id: string) => void;
   dropPosition: DropPosition;
   confettiEnabled?: boolean;
+  isPastWeek?: boolean;
+  onTouchStart?: (e: React.TouchEvent, id: string) => void;
+  onTouchMove?: (e: React.TouchEvent) => void;
+  onTouchEnd?: () => void;
 }
 
 export function RoutineCard({
@@ -30,6 +34,10 @@ export function RoutineCard({
   onDrop,
   dropPosition,
   confettiEnabled = false,
+  isPastWeek = false,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
 }: Props) {
   const [editingField, setEditingField] = useState<'name' | 'metadata' | 'frequency' | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -78,6 +86,16 @@ export function RoutineCard({
   };
 
   const handleCheck = (e: React.MouseEvent) => {
+    // For past weeks: simple toggle - increment if not complete, decrement if complete
+    if (isPastWeek) {
+      if (isComplete) {
+        onDecrement(routine.id);
+      } else {
+        onIncrement(routine.id);
+      }
+      return;
+    }
+
     // Shift+click to add extra completion (for backfilling missed days)
     if (e.shiftKey) {
       if (confettiEnabled && checkBtnRef.current) {
@@ -108,11 +126,15 @@ export function RoutineCard({
     <>
     <div
       className={`routine-card-compact ${isComplete ? 'complete' : ''} ${completedToday ? 'completed-today' : ''} ${dropPosition ? `drop-${dropPosition}` : ''}`}
+      data-drag-id={routine.id}
       draggable={!editingField}
       onDragStart={(e) => onDragStart(e, routine.id)}
       onDragOver={(e) => onDragOver(e, routine.id)}
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, routine.id)}
+      onTouchStart={onTouchStart ? (e) => onTouchStart(e, routine.id) : undefined}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
       <span className="routine-drag-handle">⋮⋮</span>
       <div className="routine-main">

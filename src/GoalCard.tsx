@@ -14,6 +14,9 @@ interface Props {
   onDrop: (e: React.DragEvent, id: string) => void;
   dropPosition: DropPosition;
   confettiEnabled?: boolean;
+  onTouchStart?: (e: React.TouchEvent, id: string) => void;
+  onTouchMove?: (e: React.TouchEvent) => void;
+  onTouchEnd?: () => void;
 }
 
 export function GoalCard({
@@ -26,6 +29,9 @@ export function GoalCard({
   onDrop,
   dropPosition,
   confettiEnabled = false,
+  onTouchStart,
+  onTouchMove,
+  onTouchEnd,
 }: Props) {
   const [editingField, setEditingField] = useState<'title' | 'description' | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -242,11 +248,15 @@ export function GoalCard({
   return (
     <div
       className={`goal-card ${dropPosition ? `drop-${dropPosition}` : ''} ${expanded ? 'expanded' : ''}`}
+      data-drag-id={goal.id}
       draggable={!editingField && !expanded}
       onDragStart={(e) => onDragStart(e, goal.id)}
       onDragOver={(e) => onDragOver(e, goal.id)}
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, goal.id)}
+      onTouchStart={onTouchStart ? (e) => onTouchStart(e, goal.id) : undefined}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
     >
       <div className="goal-header">
         <span className="goal-drag-handle">⋮⋮</span>

@@ -1,6 +1,7 @@
 import { useState, useRef } from 'react';
 import { Goal, GoalSubtask } from './types';
 import { GoalCard, DropPosition } from './GoalCard';
+import { useTouchDrag } from './useTouchDrag';
 
 interface Props {
   goals: Goal[];
@@ -25,6 +26,21 @@ export function GoalList({ goals, onDelete, onEdit, onReorder, onAdd, confettiEn
   });
   const [newGoalTitle, setNewGoalTitle] = useState('');
   const draggedIdRef = useRef<string | null>(null);
+
+  // Touch drag for mobile
+  const touchDrag = useTouchDrag({
+    items: goals,
+    getItemId: (g) => g.id,
+    targetSelector: '.goal-card',
+    onReorder: onReorder,
+    onDragStateChange: (draggedId, targetId, position) => {
+      if (draggedId) {
+        setDragState({ draggedId, targetId, position });
+      } else {
+        setDragState({ draggedId: null, targetId: null, position: null });
+      }
+    },
+  });
 
   const handleDragStart = (e: React.DragEvent, id: string) => {
     draggedIdRef.current = id;
@@ -119,6 +135,9 @@ export function GoalList({ goals, onDelete, onEdit, onReorder, onAdd, confettiEn
             onDrop={handleDrop}
             dropPosition={dragState.targetId === goal.id ? dragState.position : null}
             confettiEnabled={confettiEnabled}
+            onTouchStart={touchDrag.handleTouchStart}
+            onTouchMove={touchDrag.handleTouchMove}
+            onTouchEnd={touchDrag.handleTouchEnd}
           />
         ))
       )}

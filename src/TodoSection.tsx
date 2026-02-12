@@ -56,9 +56,11 @@ interface Props {
   dragState: DragState;
   selectedIds?: Set<string>;
   onTodoSelect?: (id: string, e: React.MouseEvent) => void;
+  onTodoFocusChange?: (id: string | null) => void;
   onTodoTouchStart?: (e: React.TouchEvent, id: string) => void;
   onTodoTouchMove?: (e: React.TouchEvent) => void;
   onTodoTouchEnd?: () => void;
+  dragSelectedCount?: number;
 }
 
 export function TodoSection({
@@ -88,9 +90,11 @@ export function TodoSection({
   dragState,
   selectedIds,
   onTodoSelect,
+  onTodoFocusChange,
   onTodoTouchStart,
   onTodoTouchMove,
   onTodoTouchEnd,
+  dragSelectedCount = 1,
 }: Props) {
   const addInputRef = useRef<HTMLInputElement>(null);
   const [newTodo, setNewTodo] = useState('');
@@ -326,9 +330,11 @@ export function TodoSection({
               isDragging={dragState.draggedId === todo.id || (selectedIds?.has(todo.id) === true && dragState.type === 'todo' && dragState.draggedId !== null)}
               isSelected={selectedIds?.has(todo.id) || false}
               onSelect={onTodoSelect}
+              onFocusChange={onTodoFocusChange}
               onTouchStart={onTodoTouchStart}
               onTouchMove={onTodoTouchMove}
               onTouchEnd={onTodoTouchEnd}
+              dragCount={dragState.draggedId === todo.id ? dragSelectedCount : 1}
             />
           ))}
           <div

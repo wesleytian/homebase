@@ -165,6 +165,21 @@ export async function getAllCompletions(): Promise<Completion[]> {
   return (data || []).map((c) => toCamel<Completion>(c));
 }
 
+export async function getEarliestCompletionWeek(): Promise<number | null> {
+  const userId = requireUserId();
+  const { data, error } = await supabase
+    .from('completions')
+    .select('week_start')
+    .eq('user_id', userId)
+    .order('week_start', { ascending: true })
+    .limit(1);
+  if (error) throw error;
+  if (data && data.length > 0) {
+    return data[0].week_start;
+  }
+  return null;
+}
+
 // Backfill streaks from historical completion data (weekly streaks)
 export async function backfillStreaks(): Promise<void> {
   const [routines, completions] = await Promise.all([
@@ -253,9 +268,9 @@ export async function backfillStreaks(): Promise<void> {
   }
 }
 
-export async function addCompletion(routineId: string): Promise<Completion> {
+export async function addCompletion(routineId: string, targetWeekStart?: number): Promise<Completion> {
   const userId = requireUserId();
-  const weekStart = getWeekStart();
+  const weekStart = targetWeekStart ?? getWeekStart();
   const { data, error } = await supabase
     .from('completions')
     .insert({
