@@ -699,6 +699,37 @@ main {
   color: #a39b91;
 }
 
+.todo-action-menu {
+  position: absolute;
+  left: 0;
+  top: 100%;
+  background: white;
+  border: 1px solid #e0dcd7;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  min-width: 140px;
+  padding: 4px 0;
+}
+
+.todo-action-menu-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: #444;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.todo-action-menu-item:hover {
+  background: #f5f2ef;
+}
+
 .todo-checkbox {
   position: relative;
   display: flex;
@@ -722,6 +753,39 @@ main {
   font-size: 1.2rem;
   color: #5c534a;
   line-height: 1;
+}
+
+.toggle-arrow {
+  width: 14px;
+  height: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.6rem;
+  color: #8a8078;
+  cursor: pointer;
+  transition: transform 0.15s ease;
+  user-select: none;
+}
+
+.toggle-arrow.open {
+  transform: rotate(90deg);
+}
+
+.toggle-arrow:hover {
+  color: #5c534a;
+}
+
+/* Highlight toggle when it's a drop target */
+.todo-item.toggle-drop-target {
+  background: #fef6f0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 2px #e8a87c;
+}
+
+.todo-item.toggle-drop-target::before,
+.todo-item.toggle-drop-target::after {
+  display: none;
 }
 
 .todo-text-input {
@@ -1020,6 +1084,61 @@ main {
   border-color: #f5a623;
   color: #f5a623;
   background: #fffbf5;
+}
+
+/* Subsection styles */
+.add-subsection-btn {
+  padding: 4px 8px;
+  background: none;
+  border: 1px dashed #e2ddd6;
+  border-radius: 4px;
+  color: #a39b91;
+  font-size: 0.65rem;
+  font-family: inherit;
+  cursor: pointer;
+  margin-top: 8px;
+  transition: all 0.2s ease;
+}
+
+.add-subsection-btn:hover {
+  border-color: #f5a623;
+  color: #f5a623;
+  background: #fffbf5;
+}
+
+.subsection-add-form {
+  margin-top: 8px;
+}
+
+.subsection-add-form input {
+  width: 100%;
+  padding: 4px 8px;
+  border: 1px solid #e2ddd6;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  background: #faf8f5;
+  font-family: inherit;
+}
+
+.subsection-add-form input:focus {
+  outline: none;
+  border-color: #f5a623;
+  background: #fff;
+}
+
+/* Nested sections */
+.todo-section .todo-section {
+  margin-left: 12px;
+  border-left: 2px solid #ebe7e2;
+  padding-left: 8px;
+}
+
+.todo-section .todo-section .section-header {
+  font-size: 0.75rem;
+}
+
+.todo-section .todo-section .section-name {
+  font-size: 0.75rem;
 }
 
 /* =========================
@@ -2194,6 +2313,67 @@ main {
   font-weight: 700;
   color: #2d2a26;
   margin: 0;
+}
+
+.add-past-entry-container {
+  position: relative;
+  margin-left: auto;
+}
+
+.add-past-entry-btn {
+  background: none;
+  border: 1px dashed #d4c8be;
+  color: #a39b91;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.add-past-entry-btn:hover {
+  border-color: #e8a87c;
+  color: #e8a87c;
+  background: #fef6f0;
+}
+
+.add-past-entry-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid #e8e4df;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  min-width: 140px;
+  overflow: hidden;
+}
+
+.add-past-entry-option {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  text-align: left;
+  font-family: inherit;
+  font-size: 0.85rem;
+  color: #5c574f;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.add-past-entry-option:hover {
+  background: #fef6f0;
+  color: #e8a87c;
+}
+
+.add-past-entry-option:not(:last-child) {
+  border-bottom: 1px solid #f0ebe5;
 }
 
 .journal-entries {

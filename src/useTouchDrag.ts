@@ -20,6 +20,7 @@ interface TouchDragState {
   longPressTimer: number | null;
   pendingDragId: string | null;
   pendingElement: HTMLElement | null;
+  documentTouchMoveHandler: ((e: TouchEvent) => void) | null;
 }
 
 interface UseTouchDragOptions<T> {
@@ -53,6 +54,7 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
     longPressTimer: null,
     pendingDragId: null,
     pendingElement: null,
+    documentTouchMoveHandler: null,
   });
 
   const cleanupPreview = useCallback(() => {
@@ -75,6 +77,11 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
     if (state.pendingElement) {
       state.pendingElement.classList.remove('touch-pending');
     }
+    // Remove document-level touch listener
+    if (state.documentTouchMoveHandler) {
+      document.removeEventListener('touchmove', state.documentTouchMoveHandler);
+      state.documentTouchMoveHandler = null;
+    }
     state.pendingDragId = null;
     state.pendingElement = null;
     // Remove any drop indicators
@@ -92,6 +99,15 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
     state.draggedElement = element;
     state.offsetY = touchY - rect.top;
     state.offsetX = touchX - rect.left;
+
+    // Add document-level touchmove listener with passive: false to prevent scrolling
+    const preventScroll = (e: TouchEvent) => {
+      if (state.isDragging) {
+        e.preventDefault();
+      }
+    };
+    state.documentTouchMoveHandler = preventScroll;
+    document.addEventListener('touchmove', preventScroll, { passive: false });
 
     // Create preview clone
     const preview = element.cloneNode(true) as HTMLElement;

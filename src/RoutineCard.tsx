@@ -16,7 +16,7 @@ interface Props {
   onDrop: (e: React.DragEvent, id: string) => void;
   dropPosition: DropPosition;
   confettiEnabled?: boolean;
-  isPastWeek?: boolean;
+  isPastDay?: boolean;
   onTouchStart?: (e: React.TouchEvent, id: string) => void;
   onTouchMove?: (e: React.TouchEvent) => void;
   onTouchEnd?: () => void;
@@ -34,7 +34,7 @@ export function RoutineCard({
   onDrop,
   dropPosition,
   confettiEnabled = false,
-  isPastWeek = false,
+  isPastDay = false,
   onTouchStart,
   onTouchMove,
   onTouchEnd,
@@ -85,34 +85,13 @@ export function RoutineCard({
     else if (e.key === 'Escape') setEditingField(null);
   };
 
-  const handleCheck = (e: React.MouseEvent) => {
-    // For past weeks: simple toggle - increment if not complete, decrement if complete
-    if (isPastWeek) {
-      if (isComplete) {
-        onDecrement(routine.id);
-      } else {
-        onIncrement(routine.id);
-      }
-      return;
-    }
-
-    // Shift+click to add extra completion (for backfilling missed days)
-    if (e.shiftKey) {
-      if (confettiEnabled && checkBtnRef.current) {
-        const rect = checkBtnRef.current.getBoundingClientRect();
-        setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });
-        setCelebrating(true);
-        setTimeout(() => setCelebrating(false), 300);
-      }
-      onIncrement(routine.id);
-      return;
-    }
-
+  const handleCheck = () => {
+    // Toggle based on whether completed on the viewed day
     if (completedToday) {
       onDecrement(routine.id);
     } else {
-      // Show confetti when checking off (not unchecking) and if enabled
-      if (confettiEnabled && checkBtnRef.current) {
+      // Show confetti when checking off (not unchecking) and if enabled and it's today
+      if (confettiEnabled && !isPastDay && checkBtnRef.current) {
         const rect = checkBtnRef.current.getBoundingClientRect();
         setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });
         setCelebrating(true);

@@ -154,6 +154,19 @@ export async function getCompletionsForWeek(weekStart: number): Promise<Completi
   return (data || []).map((c) => toCamel<Completion>(c));
 }
 
+export async function getCompletionsForDay(dayStart: number): Promise<Completion[]> {
+  const userId = requireUserId();
+  const dayEnd = dayStart + 24 * 60 * 60 * 1000; // End of day
+  const { data, error } = await supabase
+    .from('completions')
+    .select('*')
+    .eq('user_id', userId)
+    .gte('completed_at', dayStart)
+    .lt('completed_at', dayEnd);
+  if (error) throw error;
+  return (data || []).map((c) => toCamel<Completion>(c));
+}
+
 export async function getAllCompletions(): Promise<Completion[]> {
   const userId = requireUserId();
   const { data, error } = await supabase
@@ -268,14 +281,15 @@ export async function backfillStreaks(): Promise<void> {
   }
 }
 
-export async function addCompletion(routineId: string, targetWeekStart?: number): Promise<Completion> {
+export async function addCompletion(routineId: string, targetWeekStart?: number, completedAt?: number): Promise<Completion> {
   const userId = requireUserId();
   const weekStart = targetWeekStart ?? getWeekStart();
+  const timestamp = completedAt ?? Date.now();
   const { data, error } = await supabase
     .from('completions')
     .insert({
       routine_id: routineId,
-      completed_at: Date.now(),
+      completed_at: timestamp,
       week_start: weekStart,
       user_id: userId,
     })
@@ -285,16 +299,22 @@ export async function addCompletion(routineId: string, targetWeekStart?: number)
   return toCamel<Completion>(data);
 }
 
-export async function removeLastCompletion(routineId: string, weekStart: number): Promise<void> {
+export async function removeLastCompletion(routineId: string, weekStart: number, dayStart?: number): Promise<void> {
   const userId = requireUserId();
-  const { data } = await supabase
+  let query = supabase
     .from('completions')
     .select('id')
     .eq('user_id', userId)
     .eq('routine_id', routineId)
-    .eq('week_start', weekStart)
-    .order('completed_at', { ascending: false })
-    .limit(1);
+    .eq('week_start', weekStart);
+
+  // If dayStart is provided, only look for completions on that specific day
+  if (dayStart !== undefined) {
+    const dayEnd = dayStart + 24 * 60 * 60 * 1000;
+    query = query.gte('completed_at', dayStart).lt('completed_at', dayEnd);
+  }
+
+  const { data } = await query.order('completed_at', { ascending: false }).limit(1);
 
   if (data && data.length > 0) {
     await supabase.from('completions').delete().eq('id', data[0].id);
@@ -404,6 +424,17 @@ export async function updateTodoSection(id: string, sectionId: string | null): P
   if (error) throw error;
 }
 
+export async function updateTodoToggle(id: string, isToggle: boolean, toggleCollapsed: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('todos')
+    .update({ is_toggle: isToggle, toggle_collapsed: toggleCollapsed })
+    .eq('id', id);
+  // Ignore error if columns don't exist yet
+  if (error && !error.message?.includes('is_toggle') && !error.message?.includes('toggle_collapsed')) {
+    throw error;
+  }
+}
+
 export async function deleteTodo(id: string): Promise<void> {
   const { error } = await supabase.from('todos').delete().eq('id', id);
   if (error) throw error;
@@ -427,20 +458,37 @@ export async function getAllSections(): Promise<ToggleSection[]> {
   return (data || []).map((s) => toCamel<ToggleSection>(s));
 }
 
-export async function addSection(name: string): Promise<ToggleSection> {
+export async function addSection(name: string, parentId?: string | null): Promise<ToggleSection> {
   const userId = requireUserId();
-  const { data: existingSection } = await supabase
+
+  // Check for existing section with same name and parent
+  const query = supabase
     .from('sections')
     .select('*')
     .eq('user_id', userId)
-    .eq('name', name)
-    .single();
+    .eq('name', name);
+
+  if (parentId) {
+    query.eq('parent_id', parentId);
+  } else {
+    query.is('parent_id', null);
+  }
+
+  const { data: existingSection } = await query.single();
 
   if (existingSection) {
     return toCamel<ToggleSection>(existingSection);
   }
 
-  const { data: existing } = await supabase.from('sections').select('id, order').eq('user_id', userId);
+  // Get existing sections at same level to shift their order
+  const orderQuery = supabase.from('sections').select('id, order').eq('user_id', userId);
+  if (parentId) {
+    orderQuery.eq('parent_id', parentId);
+  } else {
+    orderQuery.is('parent_id', null);
+  }
+  const { data: existing } = await orderQuery;
+
   if (existing) {
     for (const s of existing) {
       await supabase.from('sections').update({ order: s.order + 1 }).eq('id', s.id);
@@ -455,6 +503,7 @@ export async function addSection(name: string): Promise<ToggleSection> {
       order: 0,
       created_at: Date.now(),
       user_id: userId,
+      parent_id: parentId || null,
     })
     .select()
     .single();

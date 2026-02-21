@@ -14,6 +14,7 @@ import {
   updateRoutineStreak,
   backfillStreaks,
   getCompletionsForWeek,
+  getCompletionsForDay,
   addCompletion,
   removeLastCompletion,
   getWeekStart,
@@ -24,6 +25,7 @@ import {
   updateTodoIndent,
   updateTodoCompleted,
   updateTodoSection,
+  updateTodoToggle,
   deleteTodo,
   reorderTodos,
   getAllSections,
@@ -56,8 +58,6 @@ import {
   deleteFriend,
     getCookieJarContent,
   saveCookieJarContent,
-  getQuickNotesContent,
-  saveQuickNotesContent,
   getUserSettings,
   saveUserSettings,
   getAllMonthlyReflections,
@@ -83,7 +83,6 @@ const FriendsPage = lazy(() => import('./FriendsPage').then(m => ({ default: m.F
 import { CookieJar } from './CookieJar';
 import { MonthlyReflectionModal } from './MonthlyReflection';
 const SettingsPage = lazy(() => import('./SettingsPage').then(m => ({ default: m.SettingsPage })));
-import { QuickNotes } from './QuickNotes';
 import './App.css';
 
 function useMobileLayout(breakpoint = 700) {
@@ -153,12 +152,19 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const onGoalError = useCallback((err: unknown) => showError("Couldn't save goal. Please try again.", 'goals', err), [showError]);
 
   // Read cache synchronously to avoid loading screen on repeat visits
+  // Cache version - increment when data structure changes
+  const CACHE_VERSION = 3;
   const [cachedData] = useState(() => {
     try {
       const raw = localStorage.getItem('dashboardCache');
       if (raw) {
-        const parsed = JSON.parse(raw).data as unknown[];
-        return parsed;
+        const parsed = JSON.parse(raw);
+        // Invalidate old cache versions
+        if (parsed.version !== CACHE_VERSION) {
+          localStorage.removeItem('dashboardCache');
+          return null;
+        }
+        return parsed.data as unknown[];
       }
     } catch (e) { console.warn('Cache read failed:', e); }
     return null;
@@ -180,7 +186,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     // Default: Life Goals collapsed, others open
     return {
       dailySummary: false,
-      quickThoughts: false,
       gratitudeJournal: false,
       todos: false,
       readingNotes: false,
@@ -206,9 +211,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [allJournalEntries, setAllJournalEntries] = useState<JournalEntry[]>([]);
   const [journalEntriesLoaded, setJournalEntriesLoaded] = useState(false);
   const [showJournalEditor, setShowJournalEditor] = useState(false);
-  const [monthlyReflections, setMonthlyReflections] = useState<MonthlyReflection[]>(c ? c[14] as MonthlyReflection[] : []);
+  const [monthlyReflections, setMonthlyReflections] = useState<MonthlyReflection[]>(c ? c[13] as MonthlyReflection[] : []);
   const [showMonthlyReflection, setShowMonthlyReflection] = useState(false);
-  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(c ? c[15] as DashboardStats : null);
+  const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(c ? c[14] as DashboardStats : null);
   const [monthlyReflectionMonth, setMonthlyReflectionMonth] = useState('');
   const [reflectionDismissed, setReflectionDismissed] = useState(false);
   const [currentMonthlyReflection, setCurrentMonthlyReflection] = useState<MonthlyReflection | null>(null);
@@ -220,7 +225,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [friends, setFriends] = useState<Friend[]>(c ? c[10] as Friend[] : []);
   const [friendsSections, setFriendsSections] = useState<FriendSection[]>(DEFAULT_SECTIONS);
   const [cookieJarContent, setCookieJarContent] = useState<string>(c ? c[11] as string : '');
-  const [quickNotesContent, setQuickNotesContent] = useState<string>(c ? c[12] as string : '');
   // Editable goal section titles (loaded from DB)
   const DEFAULT_GOAL_SECTION_TITLES = {
     q1Goals: '2026 Q1 Goals',
@@ -240,37 +244,33 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [loading, setLoading] = useState(!cachedData);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
   const [weekStart, setWeekStart] = useState(() => getWeekStart());
-  const [routineWeekOffset, setRoutineWeekOffset] = useState(0);
+  const [routineDayOffset, setRoutineDayOffset] = useState(0);
   const [earliestWeekStart, setEarliestWeekStart] = useState<number | null>(null);
 
-  // Helper to get week start for a given offset
-  const getWeekStartForOffset = useCallback((offset: number) => {
-    const currentWeek = getWeekStart();
-    return currentWeek + offset * 7 * 24 * 60 * 60 * 1000;
+  // Helper to get day start for a given offset (0 = today, -1 = yesterday, etc.)
+  const getDayStartForOffset = useCallback((offset: number) => {
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+    return now.getTime() + offset * 24 * 60 * 60 * 1000;
   }, []);
 
-  // Helper to format week date range (e.g., "Feb 3 - 9")
-  const getWeekDateRange = useCallback((offset: number) => {
-    const weekStartDate = new Date(getWeekStartForOffset(offset));
-    const weekEndDate = new Date(weekStartDate.getTime() + 6 * 24 * 60 * 60 * 1000);
+  // Helper to format day date (e.g., "Today", "Yesterday", "Sat, Feb 15")
+  const getDayDateLabel = useCallback((offset: number) => {
+    if (offset === 0) return 'Today';
+    if (offset === -1) return 'Yesterday';
+    const date = new Date(getDayStartForOffset(offset));
+    const days = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const startMonth = months[weekStartDate.getMonth()];
-    const endMonth = months[weekEndDate.getMonth()];
-    const startDay = weekStartDate.getDate();
-    const endDay = weekEndDate.getDate();
-    if (startMonth === endMonth) {
-      return `${startMonth} ${startDay} - ${endDay}`;
-    }
-    return `${startMonth} ${startDay} - ${endMonth} ${endDay}`;
-  }, [getWeekStartForOffset]);
+    return `${days[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
+  }, [getDayStartForOffset]);
 
-  // Calculate minimum week offset (can't go before earliest completion)
-  const minWeekOffset = useCallback(() => {
-    if (!earliestWeekStart) return -52; // Default: allow up to 1 year back
-    const currentWeek = getWeekStart();
-    const weeksDiff = Math.floor((earliestWeekStart - currentWeek) / (7 * 24 * 60 * 60 * 1000));
-    return weeksDiff;
-  }, [earliestWeekStart]);
+  // Calculate minimum day offset (can't go before earliest completion)
+  const minDayOffset = useCallback(() => {
+    if (!earliestWeekStart) return -365; // Default: allow up to 1 year back
+    const todayStart = getDayStartForOffset(0);
+    const daysDiff = Math.floor((earliestWeekStart - todayStart) / (24 * 60 * 60 * 1000));
+    return daysDiff;
+  }, [earliestWeekStart, getDayStartForOffset]);
 
   // Hash-based routing for browser back/forward support
   type Page = 'dashboard' | 'journal' | 'friends' | 'settings' | 'privacy' | 'terms';
@@ -284,7 +284,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   const [showSleepModal, setShowSleepModal] = useState(false);
   const [currentPage, setCurrentPageState] = useState<Page>(getPageFromHash);
-  const [mobileQuickThoughtsOpen, setMobileQuickThoughtsOpen] = useState(false);
 
   const setCurrentPage = useCallback((page: Page) => {
     const newHash = page === 'dashboard' ? '' : `#${page}`;
@@ -342,7 +341,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     randomReadingNote: ReadingNote | null,
     allFriends: Friend[],
     cookieJar: string,
-    quickNotes: string,
     userSettings: Awaited<ReturnType<typeof getUserSettings>>,
     allMonthlyReflections: MonthlyReflection[],
     stats: Awaited<ReturnType<typeof getDashboardStats>>,
@@ -387,7 +385,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setRandomNote(randomReadingNote);
     setFriends(allFriends);
     setCookieJarContent(cookieJar);
-    setQuickNotesContent(quickNotes);
     setMonthlyReflections(allMonthlyReflections);
     setDashboardStats(stats);
 
@@ -432,7 +429,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const track = <T,>(p: Promise<T>): Promise<T> =>
       p.then((v) => { completed++; setLoadProgress(Math.round((completed / total) * 100)); return v; });
 
-    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections, stats] = await Promise.all([
+    const [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, userSettings, allMonthlyReflections, stats] = await Promise.all([
       track(getAllRoutines()),
       track(getCompletionsForWeek(weekStart)),
       track(getAllTodos()),
@@ -445,13 +442,12 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       track(getRandomReadingNote()),
       track(getAllFriends()),
       track(getCookieJarContent()),
-      track(getQuickNotesContent()),
       track(getUserSettings()),
       track(getAllMonthlyReflections()),
       track(getDashboardStats(weekStart)),
     ]);
 
-    applyData(allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections, stats);
+    applyData(allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, userSettings, allMonthlyReflections, stats);
 
     // Fetch earliest completion week for navigation limits (non-blocking)
     getEarliestCompletionWeek().then(setEarliestWeekStart).catch(() => {});
@@ -459,8 +455,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     // Cache for stale-while-revalidate on next load
     try {
       localStorage.setItem('dashboardCache', JSON.stringify({
+        version: CACHE_VERSION,
         ts: Date.now(),
-        data: [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, quickNotes, userSettings, allMonthlyReflections, stats],
+        data: [allRoutines, completions, allTodos, allSections, allLifeGoals, allYearlyGoals, allQuarterlyGoals, todayEntry, readingNotes, randomReadingNote, allFriends, cookieJar, userSettings, allMonthlyReflections, stats],
       }));
     } catch (e) { console.warn('Cache write failed:', e); }
 
@@ -555,29 +552,40 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     return false;
   })();
 
-  // Refresh routine data for a specific week offset
-  const refreshRoutinesForWeek = useCallback(async (offset: number) => {
+  // Refresh routine data for a specific day offset
+  const refreshRoutinesForDay = useCallback(async (dayOffset: number) => {
     try {
-      const targetWeekStart = getWeekStartForOffset(offset);
+      const targetDayStart = getDayStartForOffset(dayOffset);
       const allRoutines = await getAllRoutines();
-      const completions = await getCompletionsForWeek(targetWeekStart);
 
-      const completionCounts = new Map<string, number>();
-      for (const c of completions) {
-        completionCounts.set(c.routineId, (completionCounts.get(c.routineId) || 0) + 1);
+      // Get completions for the specific day
+      const dayCompletions = await getCompletionsForDay(targetDayStart);
+
+      // Also get the week's completions for weekly count
+      const targetWeekStart = getWeekStart() + Math.floor(dayOffset / 7) * 7 * 24 * 60 * 60 * 1000;
+      const weekCompletions = await getCompletionsForWeek(targetWeekStart);
+
+      const dayCompletionSet = new Set<string>();
+      for (const c of dayCompletions) {
+        dayCompletionSet.add(c.routineId);
+      }
+
+      const weekCompletionCounts = new Map<string, number>();
+      for (const c of weekCompletions) {
+        weekCompletionCounts.set(c.routineId, (weekCompletionCounts.get(c.routineId) || 0) + 1);
       }
 
       const currentWeekStart = getWeekStart();
       const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
 
-      // For past weeks, completedToday doesn't apply
       const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => {
-        const thisWeekCount = completionCounts.get(r.id) || 0;
-        const streakAtRisk = offset === 0 && r.currentStreak > 0 && thisWeekCount < r.frequencyPerWeek && (r.streakGraceUsed || r.lastStreakWeek === prevWeekStart);
+        const thisWeekCount = weekCompletionCounts.get(r.id) || 0;
+        const completedOnDay = dayCompletionSet.has(r.id);
+        const streakAtRisk = dayOffset === 0 && r.currentStreak > 0 && thisWeekCount < r.frequencyPerWeek && (r.streakGraceUsed || r.lastStreakWeek === prevWeekStart);
         return {
           ...r,
           completedThisWeek: thisWeekCount,
-          completedToday: false, // Past weeks don't track "today"
+          completedToday: completedOnDay, // Now represents "completed on the viewed day"
           streakAtRisk,
         };
       });
@@ -586,28 +594,28 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     } catch (err) {
       showError("Couldn't load routine data.", 'routines', err);
     }
-  }, [getWeekStartForOffset, showError]);
+  }, [getDayStartForOffset, showError]);
 
-  // Week navigation handlers
-  const handlePrevWeek = useCallback(() => {
-    const minOffset = minWeekOffset();
-    if (routineWeekOffset <= minOffset) return; // Can't go further back
-    const newOffset = routineWeekOffset - 1;
-    setRoutineWeekOffset(newOffset);
-    refreshRoutinesForWeek(newOffset);
-  }, [routineWeekOffset, refreshRoutinesForWeek, minWeekOffset]);
+  // Day navigation handlers
+  const handlePrevDay = useCallback(() => {
+    const minOffset = minDayOffset();
+    if (routineDayOffset <= minOffset) return; // Can't go further back
+    const newOffset = routineDayOffset - 1;
+    setRoutineDayOffset(newOffset);
+    refreshRoutinesForDay(newOffset);
+  }, [routineDayOffset, refreshRoutinesForDay, minDayOffset]);
 
-  const handleNextWeek = useCallback(() => {
-    if (routineWeekOffset >= 0) return;
-    const newOffset = routineWeekOffset + 1;
-    setRoutineWeekOffset(newOffset);
+  const handleNextDay = useCallback(() => {
+    if (routineDayOffset >= 0) return;
+    const newOffset = routineDayOffset + 1;
+    setRoutineDayOffset(newOffset);
     if (newOffset === 0) {
-      // Going back to current week - reload fresh data
+      // Going back to today - reload fresh data
       loadData();
     } else {
-      refreshRoutinesForWeek(newOffset);
+      refreshRoutinesForDay(newOffset);
     }
-  }, [routineWeekOffset, refreshRoutinesForWeek]);
+  }, [routineDayOffset, refreshRoutinesForDay]);
 
   // Routine handlers
   const handleAddRoutine = async (name: string, frequency: number, metadata: string) => {
@@ -625,13 +633,17 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const target = routine.frequencyPerWeek;
     const currentWeekStart = getWeekStart();
     const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
-    const targetWeekStart = getWeekStartForOffset(routineWeekOffset);
-    const isCurrentWeek = routineWeekOffset === 0;
+    // Calculate which week the viewed day falls into
+    const targetDayStart = getDayStartForOffset(routineDayOffset);
+    const targetWeekStart = getWeekStart() + Math.floor(routineDayOffset / 7) * 7 * 24 * 60 * 60 * 1000;
 
     let newStreak = routine.currentStreak;
     let newLongest = routine.longestStreak;
     let newLastStreakWeek = routine.lastStreakWeek;
     let newGraceUsed = routine.streakGraceUsed;
+
+    // Check if we're adding to current week (for streak calculation)
+    const isCurrentWeek = targetWeekStart === currentWeekStart;
 
     // Only update streaks for current week
     if (isCurrentWeek && newCompletedThisWeek === target && routine.completedThisWeek < target) {
@@ -661,7 +673,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ? {
               ...r,
               completedThisWeek: newCompletedThisWeek,
-              completedToday: isCurrentWeek ? true : r.completedToday,
+              completedToday: true, // Mark as completed for the viewed day
               currentStreak: newStreak,
               longestStreak: newLongest,
               lastStreakWeek: newLastStreakWeek,
@@ -702,7 +714,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               ? {
                   ...r,
                   completedThisWeek: newCompletedThisWeek,
-                  completedToday: isCurrentWeek ? true : r.completedToday,
+                  completedToday: true,
                   currentStreak: newStreak,
                   longestStreak: newLongest,
                   lastStreakWeek: newLastStreakWeek,
@@ -719,8 +731,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       },
     });
 
-    // Sync to DB
-    addCompletion(id, targetWeekStart).catch(onRoutineError);
+    // Sync to DB - add completion with the target day's timestamp
+    addCompletion(id, targetWeekStart, targetDayStart).catch(onRoutineError);
     if (isCurrentWeek && newCompletedThisWeek === target && routine.completedThisWeek < target) {
       updateRoutineStreak(id, newStreak, newLongest, newLastStreakWeek, newGraceUsed).catch(onRoutineError);
     }
@@ -728,13 +740,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   const handleDecrement = (id: string) => {
     const routine = routines.find((r) => r.id === id);
-    if (!routine || routine.completedThisWeek <= 0) return;
+    if (!routine || !routine.completedToday) return; // Can only decrement if completed on viewed day
 
-    const targetWeekStart = getWeekStartForOffset(routineWeekOffset);
-    const isCurrentWeek = routineWeekOffset === 0;
-
-    // Calculate if we're removing today's only completion (only relevant for current week)
-    const wasCompletedToday = isCurrentWeek && routine.completedToday;
+    const targetDayStart = getDayStartForOffset(routineDayOffset);
+    const targetWeekStart = getWeekStart() + Math.floor(routineDayOffset / 7) * 7 * 24 * 60 * 60 * 1000;
 
     // Optimistic update - update state immediately
     setRoutines((prev) =>
@@ -743,8 +752,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ? {
               ...r,
               completedThisWeek: Math.max(0, r.completedThisWeek - 1),
-              // Only mark as not completed today if this was the only completion today
-              completedToday: wasCompletedToday ? false : r.completedToday,
+              completedToday: false, // Mark as not completed for the viewed day
             }
           : r
       )
@@ -768,7 +776,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           )
         );
         // Sync to DB in background
-        addCompletion(id, targetWeekStart).catch(onRoutineError);
+        addCompletion(id, targetWeekStart, targetDayStart).catch(onRoutineError);
       },
       redo: () => {
         setRoutines((prev) =>
@@ -777,17 +785,17 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               ? {
                   ...r,
                   completedThisWeek: Math.max(0, r.completedThisWeek - 1),
-                  completedToday: wasCompletedToday ? false : r.completedToday,
+                  completedToday: false,
                 }
               : r
           )
         );
-        removeLastCompletion(id, targetWeekStart).catch(onRoutineError);
+        removeLastCompletion(id, targetWeekStart, targetDayStart).catch(onRoutineError);
       },
     });
 
-    // Sync to DB in background
-    removeLastCompletion(id, targetWeekStart).catch(onRoutineError);
+    // Sync to DB in background - remove completion for the specific day
+    removeLastCompletion(id, targetWeekStart, targetDayStart).catch(onRoutineError);
   };
 
   const handleDeleteRoutine = async (id: string) => {
@@ -1217,13 +1225,94 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     updateTodoSection(id, newSectionId).catch(onTodoError);
   };
 
-  // Section handlers
-  const handleAddSection = async (name: string) => {
+  // Section handlers - track sections being added to prevent duplicates
+  const addingSectionsRef = useRef<Set<string>>(new Set());
+
+  const handleAddSection = async (name: string, parentId?: string | null) => {
     trackEvent('action', { action: 'section_created', name }); trackFeatureUsed('todos');
-    await withSaveStatus(async () => {
-      await addSection(name);
-      await loadData();
+
+    // Unique key includes parent for subsections
+    const uniqueKey = parentId ? `${parentId}:${name}` : name;
+
+    // Prevent duplicate adds using ref (survives re-renders)
+    if (addingSectionsRef.current.has(uniqueKey)) return;
+    addingSectionsRef.current.add(uniqueKey);
+
+    // Optimistic: add section immediately with temp ID
+    const tempId = `temp-${Date.now()}`;
+
+    setSections(prev => {
+      // Check if section already exists at same level
+      if (prev.some(s => s.name === name && s.parentId === (parentId || null))) {
+        return prev;
+      }
+      const optimisticSection: ToggleSection = {
+        id: tempId,
+        name,
+        collapsed: false,
+        order: 0,
+        createdAt: Date.now(),
+        parentId: parentId || null,
+      };
+      // Add subsections after their parent, top-level sections at the top
+      if (parentId) {
+        const parentIndex = prev.findIndex(s => s.id === parentId);
+        if (parentIndex !== -1) {
+          const newSections = [...prev];
+          newSections.splice(parentIndex + 1, 0, optimisticSection);
+          return newSections;
+        }
+      }
+      return [optimisticSection, ...prev];
     });
+
+    // Sync to DB in background and update with real ID
+    addSection(name, parentId).then(realSection => {
+      setSections(prev => prev.map(s => s.id === tempId ? realSection : s));
+    }).catch(err => {
+      // Remove optimistic section on error
+      setSections(prev => prev.filter(s => s.id !== tempId));
+      console.error('Failed to add section:', err);
+    }).finally(() => {
+      addingSectionsRef.current.delete(uniqueKey);
+    });
+  };
+
+  // Convert a todo into an inline toggle (stays in place, can collapse children)
+  const handleConvertTodoToToggle = async (todoId: string) => {
+    const todo = todos.find(t => t.id === todoId);
+    if (!todo) return;
+
+    // Optimistically update the todo to be a toggle
+    const updatedTodo = { ...todo, isToggle: true, toggleCollapsed: false };
+    setTodos(prev => prev.map(t => t.id === todoId ? updatedTodo : t));
+
+    // Sync to DB
+    try {
+      await updateTodoToggle(todoId, true, false);
+    } catch (err) {
+      // Restore on error
+      setTodos(prev => prev.map(t => t.id === todoId ? todo : t));
+      console.error('Failed to convert todo to toggle:', err);
+    }
+  };
+
+  // Toggle collapse state of an inline toggle
+  const handleToggleCollapse = async (todoId: string) => {
+    const todo = todos.find(t => t.id === todoId);
+    if (!todo || !todo.isToggle) return;
+
+    const newCollapsed = !todo.toggleCollapsed;
+    setTodos(prev => prev.map(t => t.id === todoId ? { ...t, toggleCollapsed: newCollapsed } : t));
+
+    // Sync to DB
+    try {
+      await updateTodoToggle(todoId, true, newCollapsed);
+    } catch (err) {
+      // Restore on error
+      setTodos(prev => prev.map(t => t.id === todoId ? todo : t));
+      console.error('Failed to toggle collapse:', err);
+    }
   };
 
   const handleToggleSection = (id: string) => {
@@ -1238,9 +1327,25 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   };
 
   const handleDeleteSection = async (id: string) => {
-    await withSaveStatus(async () => {
-      await deleteSection(id);
-      await loadData();
+    // Save for potential restore on error
+    const sectionToDelete = sections.find(s => s.id === id);
+    const todosToOrphan = todos.filter(t => t.sectionId === id);
+
+    // Optimistic: remove section and move its todos to unsectioned
+    setSections(prev => prev.filter(s => s.id !== id));
+    setTodos(prev => prev.map(t => t.sectionId === id ? { ...t, sectionId: null } : t));
+
+    // Sync to DB in background
+    deleteSection(id).catch(err => {
+      // Restore on error
+      if (sectionToDelete) {
+        setSections(prev => [...prev, sectionToDelete]);
+      }
+      setTodos(prev => prev.map(t => {
+        const wasInSection = todosToOrphan.find(o => o.id === t.id);
+        return wasInSection ? { ...t, sectionId: id } : t;
+      }));
+      console.error('Failed to delete section:', err);
     });
   };
 
@@ -1397,9 +1502,19 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   // Journal handlers
   const handleSaveJournalEntry = async (entry: Partial<JournalEntry> & { date: string }) => {
     trackEvent('action', { action: 'journal_saved' }); trackFeatureUsed('journal');
-    // Just save to DB - don't update parent state or call loadData()
-    // The JournalEntryEditor manages its own local state to avoid race conditions
-    await createOrUpdateJournalEntry(entry);
+    // Save to DB and update local state
+    const saved = await createOrUpdateJournalEntry(entry);
+    setAllJournalEntries((prev) => {
+      const idx = prev.findIndex((e) => e.date === saved.date);
+      if (idx >= 0) {
+        // Update existing entry
+        const updated = [...prev];
+        updated[idx] = saved;
+        return updated;
+      }
+      // Add new entry, keeping sorted by date (newest first)
+      return [saved, ...prev].sort((a, b) => b.date.localeCompare(a.date));
+    });
   };
 
   const handleSaveMonthlyReflection = async (reflection: Partial<MonthlyReflection> & { month: string }) => {
@@ -1474,12 +1589,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   };
 
 
-  // Quick Notes handler
-  const handleSaveQuickNotes = async (content: string) => {
-    trackFeatureUsed('quick_thoughts');
-    await saveQuickNotesContent(content);
-    setQuickNotesContent(content);
-  };
 
   // Settings handler
   const handleSettingsChange = (newSettings: AppSettings) => {
@@ -1718,7 +1827,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onAddTodoBefore={handleAddTodoBefore} onMoveTodo={handleMoveTodo} onReorderTodos={handleReorderTodos}
           onToggleSection={handleToggleSection} onDeleteSection={handleDeleteSection} onEditSection={handleEditSection}
           onAddSection={handleAddSection} onReorderSections={handleReorderSections} onMoveToToday={handleMoveToToday}
-          pushUndo={pushUndo}
+          onConvertTodoToToggle={handleConvertTodoToToggle} onToggleCollapse={handleToggleCollapse} pushUndo={pushUndo}
         />
       )}
     </section>
@@ -1734,8 +1843,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         <RoutineList routines={routines} onIncrement={handleIncrement} onDecrement={handleDecrement}
           onDelete={handleDeleteRoutine} onEdit={handleEditRoutine} onReorder={handleReorderRoutines}
           onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled}
-          weekOffset={routineWeekOffset} weekDateRange={getWeekDateRange(routineWeekOffset)}
-          onPrevWeek={handlePrevWeek} onNextWeek={handleNextWeek} canGoPrev={routineWeekOffset > minWeekOffset()} />
+          dayOffset={routineDayOffset} dayDateLabel={getDayDateLabel(routineDayOffset)}
+          onPrevDay={handlePrevDay} onNextDay={handleNextDay} canGoPrev={routineDayOffset > minDayOffset()} />
       )}
     </section>
   );
@@ -1778,19 +1887,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       {!collapsedSections.yearlyGoals && (
         <GoalList goals={yearlyGoals} onDelete={handleDeleteYearlyGoal} onEdit={handleEditYearlyGoal}
           onReorder={handleReorderYearlyGoals} onAdd={handleAddYearlyGoal} confettiEnabled={settings.confettiEnabled} />
-      )}
-    </section>
-  );
-
-  const quickThoughtsCollapsed = isMobile ? !mobileQuickThoughtsOpen : collapsedSections.quickThoughts;
-  const quickNotesSection = (
-    <section className="app-section quick-notes-section collapsible-section">
-      <h2 className="collapsible-header" onClick={() => { if (isMobile) setMobileQuickThoughtsOpen(v => !v); else toggleSectionCollapsed('quickThoughts'); }}>
-        <span className={`collapse-arrow ${quickThoughtsCollapsed ? '' : 'open'}`}>▶</span>
-        Quick Thoughts
-      </h2>
-      {!quickThoughtsCollapsed && (
-        <QuickNotes content={quickNotesContent} onSave={handleSaveQuickNotes} />
       )}
     </section>
   );
@@ -1926,7 +2022,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 onAddTodoBefore={handleAddTodoBefore} onMoveTodo={handleMoveTodo} onReorderTodos={handleReorderTodos}
                 onToggleSection={handleToggleSection} onDeleteSection={handleDeleteSection} onEditSection={handleEditSection}
                 onAddSection={handleAddSection} onReorderSections={handleReorderSections} onMoveToToday={handleMoveToToday}
-                pushUndo={pushUndo}
+                onConvertTodoToToggle={handleConvertTodoToToggle} onToggleCollapse={handleToggleCollapse} pushUndo={pushUndo}
               />
             </>
           )}
@@ -1936,8 +2032,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               <RoutineList routines={routines} onIncrement={handleIncrement} onDecrement={handleDecrement}
                 onDelete={handleDeleteRoutine} onEdit={handleEditRoutine} onReorder={handleReorderRoutines}
                 onAdd={handleAddRoutine} confettiEnabled={settings.confettiEnabled}
-                weekOffset={routineWeekOffset} weekDateRange={getWeekDateRange(routineWeekOffset)}
-                onPrevWeek={handlePrevWeek} onNextWeek={handleNextWeek} canGoPrev={routineWeekOffset > minWeekOffset()} />
+                dayOffset={routineDayOffset} dayDateLabel={getDayDateLabel(routineDayOffset)}
+                onPrevDay={handlePrevDay} onNextDay={handleNextDay} canGoPrev={routineDayOffset > minDayOffset()} />
             </>
           )}
           {mobileTab === 'goals' && (
@@ -1967,7 +2063,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                   <span>Sign Out</span>
                 </button>
               </div>
-              {quickNotesSection}
               {readingNotesSection}
               {cookieJarSection}
               {friendsSection}
@@ -2036,8 +2131,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       </header>
 
       {statsBanner}
-
-      {quickNotesSection}
 
       {monthlyReflectionBanner}
 

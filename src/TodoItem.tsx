@@ -31,6 +31,9 @@ interface Props {
   onTouchMove?: (e: React.TouchEvent) => void;
   onTouchEnd?: () => void;
   dragCount?: number; // Number of items being dragged (for visual)
+  onConvertToToggle?: (id: string) => void;
+  onToggleCollapse?: (id: string) => void;
+  onClearSelection?: () => void;
 }
 
 export function TodoItem({
@@ -60,12 +63,17 @@ export function TodoItem({
   onTouchMove,
   onTouchEnd,
   dragCount = 1,
+  onConvertToToggle,
+  onToggleCollapse,
+  onClearSelection,
 }: Props) {
   const [localText, setLocalText] = useState(todo.text);
   const [showConfetti, setShowConfetti] = useState<{ x: number; y: number } | null>(null);
   const [celebrating, setCelebrating] = useState(false);
   const [isFocused, setIsFocused] = useState(false);
+  const [showActionMenu, setShowActionMenu] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const actionMenuRef = useRef<HTMLDivElement>(null);
   const editableRef = useRef<HTMLDivElement>(null);
   const checkboxRef = useRef<HTMLLabelElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
@@ -222,9 +230,18 @@ export function TodoItem({
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
       }
+
+      // If empty, convert to empty line (no checkbox) and don't create new todo
+      if (localText.trim() === '') {
+        onEdit(todo.id, '');
+        hasUnsavedChangesRef.current = false;
+        inputRef.current?.blur();
+        return;
+      }
+
       // Save current text first
       const trimmed = localText.trim();
-      if (trimmed && trimmed !== todo.text) {
+      if (trimmed !== todo.text) {
         onEdit(todo.id, trimmed);
       }
       hasUnsavedChangesRef.current = false;
@@ -325,6 +342,18 @@ export function TodoItem({
     onToggle(todo.id);
   };
 
+  // Close action menu when clicking outside
+  useEffect(() => {
+    if (!showActionMenu) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (actionMenuRef.current && !actionMenuRef.current.contains(e.target as Node)) {
+        setShowActionMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [showActionMenu]);
+
   // Check if this is an empty spacer line
   const isEmptyLine = todo.text === '' && !isFocused;
 
@@ -338,7 +367,7 @@ export function TodoItem({
         />
       )}
     <div
-      className={`todo-item ${isEmptyLine ? 'empty-line' : ''} ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${isSelected ? 'selected' : ''}`}
+      className={`todo-item ${isEmptyLine ? 'empty-line' : ''} ${todo.completed ? 'completed' : ''} ${isDragging ? 'dragging' : ''} ${dropPosition ? `drop-${dropPosition}` : ''} ${isSelected ? 'selected' : ''} ${todo.isToggle && dropPosition ? 'toggle-drop-target' : ''}`}
       style={{
         marginLeft: `${indent * 24}px`,
         '--drop-indent-offset': dropIndent !== null ? `${(dropIndent - indent) * 24}px` : '0px'
@@ -350,10 +379,13 @@ export function TodoItem({
       onDragLeave={onDragLeave}
       onDrop={(e) => onDrop(e, todo.id)}
       onClick={(e) => {
-        // Only handle selection if shift/cmd/ctrl is held, to avoid interfering with normal clicks
+        // Handle selection based on modifier keys
         if ((e.shiftKey || e.metaKey || e.ctrlKey) && onSelect) {
           e.preventDefault();
           onSelect(todo.id, e);
+        } else {
+          // Regular click clears multi-selection
+          onClearSelection?.();
         }
         // Click on empty line to focus it
         if (isEmptyLine) {
@@ -370,10 +402,33 @@ export function TodoItem({
             className="drag-handle"
             onClick={(e) => {
               e.stopPropagation();
-              if (onSelect) onSelect(todo.id, e);
+              // Show action menu on click
+              setShowActionMenu(!showActionMenu);
             }}
           >⋮⋮</span>
-          {todo.isBullet ? (
+          {showActionMenu && onConvertToToggle && todo.text.trim() && !todo.isToggle && (
+            <div className="todo-action-menu" ref={actionMenuRef}>
+              <button
+                className="todo-action-menu-item"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onConvertToToggle(todo.id);
+                  setShowActionMenu(false);
+                }}
+              >
+                Convert to toggle
+              </button>
+            </div>
+          )}
+          {todo.isToggle ? (
+            <span
+              className={`toggle-arrow ${todo.toggleCollapsed ? '' : 'open'}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleCollapse?.(todo.id);
+              }}
+            >▶</span>
+          ) : todo.isBullet ? (
             <span className="todo-bullet">•</span>
           ) : (
             <label ref={checkboxRef} className={`todo-checkbox ${celebrating ? 'celebrating' : ''}`}>
@@ -462,7 +517,16 @@ export function TodoItem({
                 saveTimeoutRef.current = null;
               }
               const newText = htmlToText(e.currentTarget.innerHTML).trim();
-              if (newText && newText !== todo.text) {
+
+              // If empty, convert to empty line (no checkbox) and don't create new todo
+              if (newText === '') {
+                onEdit(todo.id, '');
+                hasUnsavedChangesRef.current = false;
+                e.currentTarget.blur();
+                return;
+              }
+
+              if (newText !== todo.text) {
                 onEdit(todo.id, newText);
               }
               hasUnsavedChangesRef.current = false;

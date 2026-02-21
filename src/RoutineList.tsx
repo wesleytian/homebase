@@ -12,11 +12,11 @@ interface Props {
   onReorder: (routines: RoutineWithProgress[]) => void;
   onAdd: (name: string, frequency: number, metadata: string) => void;
   confettiEnabled?: boolean;
-  // Week navigation
-  weekOffset?: number;
-  weekDateRange?: string;
-  onPrevWeek?: () => void;
-  onNextWeek?: () => void;
+  // Day navigation
+  dayOffset?: number;
+  dayDateLabel?: string;
+  onPrevDay?: () => void;
+  onNextDay?: () => void;
   canGoPrev?: boolean;
 }
 
@@ -26,7 +26,7 @@ interface DragState {
   position: DropPosition;
 }
 
-export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder, onAdd, confettiEnabled = false, weekOffset = 0, weekDateRange, onPrevWeek, onNextWeek, canGoPrev = true }: Props) {
+export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEdit, onReorder, onAdd, confettiEnabled = false, dayOffset = 0, dayDateLabel, onPrevDay, onNextDay, canGoPrev = true }: Props) {
   const [addingTo, setAddingTo] = useState<'daily' | 'weekly-weekday' | 'weekly-weekend' | null>(null);
   const [newName, setNewName] = useState('');
   const [dragState, setDragState] = useState<DragState>({
@@ -135,7 +135,7 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
       onDrop={handleDrop}
       dropPosition={dragState.targetId === routine.id ? dragState.position : null}
       confettiEnabled={confettiEnabled}
-      isPastWeek={weekOffset < 0}
+      isPastDay={dayOffset < 0}
       onTouchStart={touchDrag.handleTouchStart}
       onTouchMove={touchDrag.handleTouchMove}
       onTouchEnd={touchDrag.handleTouchEnd}
@@ -144,23 +144,23 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
 
   return (
     <div className="routine-list" onDragEnd={handleDragEnd}>
-      {/* Week navigation */}
-      {onPrevWeek && onNextWeek && (
+      {/* Day navigation */}
+      {onPrevDay && onNextDay && (
         <div className="routine-week-nav">
           <button
             className="routine-week-arrow"
-            onClick={onPrevWeek}
+            onClick={onPrevDay}
             disabled={!canGoPrev}
-            aria-label="Previous week"
+            aria-label="Previous day"
           >
             &lt;
           </button>
-          <span className="routine-week-label">{weekDateRange || 'This Week'}</span>
+          <span className="routine-week-label">{dayDateLabel || 'Today'}</span>
           <button
             className="routine-week-arrow"
-            onClick={onNextWeek}
-            disabled={weekOffset === 0}
-            aria-label="Next week"
+            onClick={onNextDay}
+            disabled={dayOffset === 0}
+            aria-label="Next day"
           >
             &gt;
           </button>

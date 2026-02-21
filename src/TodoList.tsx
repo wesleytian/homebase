@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { Todo, ToggleSection } from './types';
 import { TodoItem, DropPosition } from './TodoItem';
 import { TodoSection } from './TodoSection';
@@ -21,9 +21,11 @@ interface Props {
   onToggleSection: (id: string) => void;
   onDeleteSection: (id: string) => void;
   onEditSection: (id: string, name: string) => void;
-  onAddSection: (name: string) => void;
+  onAddSection: (name: string, parentId?: string | null) => void;
   onReorderSections: (sections: ToggleSection[]) => void;
   onMoveToToday: (sectionId: string) => void;
+  onConvertTodoToToggle: (todoId: string) => void;
+  onToggleCollapse: (todoId: string) => void;
   pushUndo: (action: UndoAction) => void;
 }
 
@@ -63,12 +65,15 @@ export function TodoList({
   onAddSection,
   onReorderSections,
   onMoveToToday,
+  onConvertTodoToToggle,
+  onToggleCollapse,
   pushUndo,
 }: Props) {
-  const [newSection, setNewSection] = useState('');
-  const [showSectionInput, setShowSectionInput] = useState(false);
   const [unsectionedHover, setUnsectionedHover] = useState(false);
-  const [visibleSectionCount, setVisibleSectionCount] = useState(2);
+  const [visibleSectionCount, setVisibleSectionCount] = useState(() => {
+    const saved = localStorage.getItem('visibleSectionCount');
+    return saved ? parseInt(saved, 10) : 2;
+  });
   const [dragState, setDragState] = useState<DragState>({
     type: null,
     draggedId: null,
@@ -78,6 +83,11 @@ export function TodoList({
     targetIndent: 0,
   });
   const dragRef = useRef<{ type: DragType; id: string; selectedIds?: Set<string> } | null>(null);
+
+  // Persist visibleSectionCount to localStorage
+  useEffect(() => {
+    localStorage.setItem('visibleSectionCount', String(visibleSectionCount));
+  }, [visibleSectionCount]);
 
   // Multi-select state
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -90,6 +100,11 @@ export function TodoList({
     if (id) {
       setLastSelectedId(id);
     }
+  }, []);
+
+  // Clear selection
+  const handleClearSelection = useCallback(() => {
+    setSelectedIds(new Set());
   }, []);
 
   // Clear selection when clicking outside todos
@@ -185,6 +200,36 @@ export function TodoList({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIds, todos, onIndentTodo]);
 
+  // Document-level click handler to clear selection when clicking outside todos
+  useEffect(() => {
+    if (selectedIds.size === 0) return;
+
+    const handleDocumentClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Don't clear if clicking on a todo item or interactive elements
+      if (
+        target.closest('.todo-item') ||
+        target.closest('.section-header') ||
+        target.closest('.section-add-form') ||
+        target.closest('.subsection-add-form') ||
+        target.closest('.add-subsection-btn') ||
+        target.closest('.delete-confirm-overlay') ||
+        target.closest('.todo-action-menu')
+      ) {
+        return;
+      }
+      // Don't clear if modifier keys are held (user might be extending selection)
+      if (e.shiftKey || e.metaKey || e.ctrlKey) {
+        return;
+      }
+      setSelectedIds(new Set());
+    };
+
+    // Use capture phase to handle clicks before other handlers can stopPropagation
+    document.addEventListener('click', handleDocumentClick, true);
+    return () => document.removeEventListener('click', handleDocumentClick, true);
+  }, [selectedIds.size]);
+
   // Touch drag for todos
   const touchDrag = useTouchDrag({
     items: todos,
@@ -200,32 +245,29 @@ export function TodoList({
     },
   });
 
-  const handleAddSection = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newSection.trim()) return;
-    onAddSection(newSection.trim());
-    setNewSection('');
-    setShowSectionInput(false);
-  };
-
-  const getNextDaySection = (): string | null => {
-    const dayNames = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
-    const existingNames = new Set(sections.map((s) => s.name));
-
-    // Start from today, find the first day that doesn't have a section
-    const now = new Date();
-    for (let offset = 0; offset < 7; offset++) {
-      const d = new Date(now);
-      d.setDate(d.getDate() + offset);
-      const name = `${dayNames[d.getDay()]}, ${d.getMonth() + 1}/${d.getDate()}`;
-      if (!existingNames.has(name)) return name;
+  // Compute next available day section (today or tomorrow only)
+  const dayNames = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
+  const existingNames = new Set(sections.map((s) => s.name.trim()));
+  let nextDaySection: string | null = null;
+  const now = new Date();
+  for (let offset = 0; offset <= 1; offset++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + offset);
+    const name = `${dayNames[d.getDay()]}, ${d.getMonth() + 1}/${d.getDate()}`;
+    if (!existingNames.has(name)) {
+      nextDaySection = name;
+      break;
     }
-    return null;
-  };
+  }
 
   const handleAddNextDay = () => {
-    const name = getNextDaySection();
-    if (name) onAddSection(name);
+    if (nextDaySection) {
+      // Increase visible count to keep existing sections visible
+      // The new section will take a "guaranteed" slot (today/tomorrow),
+      // so we need one more slot to maintain the same number of visible past sections
+      setVisibleSectionCount((c) => c + 1);
+      onAddSection(nextDaySection);
+    }
   };
 
   // Helper to get a todo and all its children (indented todos underneath)
@@ -477,15 +519,13 @@ export function TodoList({
       ? remaining.indexOf(firstSectionTodo)
       : remaining.length;
 
-    const updatedMoved = todosToMove.map((t) => ({ ...t, sectionId: sectionId, indent: 0 }));
+    // Preserve original indentation when moving to section
+    const updatedMoved = todosToMove.map((t) => ({ ...t, sectionId: sectionId }));
     remaining.splice(insertIndex, 0, ...updatedMoved);
     onReorderTodos(remaining);
 
     for (const todo of todosToMove) {
       onMoveTodo(todo.id, sectionId);
-      if ((todo.indent ?? 0) !== 0) {
-        onIndentTodo(todo.id, 0);
-      }
     }
 
     // Push undo action
@@ -618,29 +658,45 @@ export function TodoList({
 
   const unsectionedTodos = todos.filter((t) => t.sectionId === null);
 
+  // Filter out children of collapsed toggles in unsectioned area
+  const visibleUnsectionedTodos = useMemo(() => {
+    const result: typeof unsectionedTodos = [];
+    let collapsedToggleIndent: number | null = null;
+
+    for (const todo of unsectionedTodos) {
+      const todoIndent = todo.indent ?? 0;
+
+      // If we're inside a collapsed toggle and this todo is more indented, skip it
+      if (collapsedToggleIndent !== null && todoIndent > collapsedToggleIndent) {
+        continue;
+      }
+
+      // If we hit same or lower indent, we've exited the collapsed toggle's children
+      if (collapsedToggleIndent !== null && todoIndent <= collapsedToggleIndent) {
+        collapsedToggleIndent = null;
+      }
+
+      result.push(todo);
+
+      // If this is a collapsed toggle, start skipping children
+      if (todo.isToggle && todo.toggleCollapsed) {
+        collapsedToggleIndent = todoIndent;
+      }
+    }
+
+    return result;
+  }, [unsectionedTodos]);
+
   return (
     <div className="todo-list" onDragEnd={handleDragEnd} onClick={handleContainerClick}>
-      {showSectionInput ? (
-        <form className="section-add-form" onSubmit={handleAddSection}>
-          <input
-            type="text"
-            placeholder="Section name..."
-            value={newSection}
-            onChange={(e) => setNewSection(e.target.value)}
-            autoFocus
-            onBlur={() => !newSection && setShowSectionInput(false)}
-          />
-        </form>
-      ) : (
+      {nextDaySection && (
         <div className="section-add-buttons">
-          <button className="add-section-btn" onClick={() => setShowSectionInput(true)}>
-            + Add Section
+          <button
+            className="add-section-btn add-next-day-btn"
+            onClick={handleAddNextDay}
+          >
+            + {nextDaySection}
           </button>
-          {getNextDaySection() && (
-            <button className="add-section-btn add-next-day-btn" onClick={handleAddNextDay}>
-              + {getNextDaySection()}
-            </button>
-          )}
         </div>
       )}
 
@@ -656,7 +712,7 @@ export function TodoList({
         onDragLeave={() => setUnsectionedHover(false)}
         onDrop={handleDropOnUnsectioned}
       >
-        {unsectionedTodos.map((todo, index) => (
+        {visibleUnsectionedTodos.map((todo, index) => (
           <TodoItem
             key={todo.id}
             todo={todo}
@@ -667,7 +723,7 @@ export function TodoList({
             onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
             onCreateAbove={(id, indent) => onAddTodoBefore('', id, indent)}
             onDeleteAndFocusAbove={index > 0 ? (id) => {
-              const prevTodo = unsectionedTodos[index - 1];
+              const prevTodo = visibleUnsectionedTodos[index - 1];
               onDeleteTodo(id);
               // Focus the previous todo's input after a short delay
               setTimeout(() => {
@@ -694,15 +750,21 @@ export function TodoList({
             onTouchMove={touchDrag.handleTouchMove}
             onTouchEnd={touchDrag.handleTouchEnd}
             dragCount={dragState.draggedId === todo.id ? (dragRef.current?.selectedIds?.size || 1) : 1}
+            onConvertToToggle={onConvertTodoToToggle}
+            onToggleCollapse={onToggleCollapse}
+            onClearSelection={handleClearSelection}
           />
         ))}
       </div>
 
       {(() => {
-        // Show today's section (if exists) + recent sections with todos up to visibleSectionCount
+        // Show today's and tomorrow's sections (if exist) + recent sections with todos up to visibleSectionCount
         const now = new Date();
         const currentYear = now.getFullYear();
         const todayStr = `${now.getMonth() + 1}/${now.getDate()}`;
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        const tomorrowStr = `${tomorrow.getMonth() + 1}/${tomorrow.getDate()}`;
 
         // Helper to parse section date
         const parseSectionDate = (section: ToggleSection) => {
@@ -723,22 +785,33 @@ export function TodoList({
           return s.name.endsWith(todayStr);
         });
 
-        // Get date sections with todos (excluding today since we handle it separately)
+        // Find tomorrow's section (even if empty)
+        const tomorrowSection = sections.find((s) => {
+          if (!isDateSection(s.name)) return false;
+          return s.name.endsWith(tomorrowStr);
+        });
+
+        // Get date sections with todos (excluding today/tomorrow since we handle them separately)
         const dateSectionsWithTodos = sections
           .filter((section) => {
+            if (section.parentId) return false; // Exclude child sections
             if (section.name.toLowerCase() === 'later') return false;
             if (!isDateSection(section.name)) return false;
             if (todaySection && section.id === todaySection.id) return false;
+            if (tomorrowSection && section.id === tomorrowSection.id) return false;
             const sectionTodos = todos.filter((t) => t.sectionId === section.id);
             return sectionTodos.length > 0;
           })
           .map((section) => ({ section, date: parseSectionDate(section) || 0 }))
           .sort((a, b) => b.date - a.date);
 
-        // Build the list: today (if exists) + fill up to visibleSectionCount with recent sections
+        // Build the list: today + tomorrow (if exist) + fill up to visibleSectionCount with recent sections
         const recentIds = new Set<string>();
         if (todaySection) {
           recentIds.add(todaySection.id);
+        }
+        if (tomorrowSection) {
+          recentIds.add(tomorrowSection.id);
         }
         // Add recent sections with todos until we reach visibleSectionCount
         for (const { section } of dateSectionsWithTodos) {
@@ -746,19 +819,30 @@ export function TodoList({
           recentIds.add(section.id);
         }
 
-        return sections.filter((section) => {
+        const filtered = sections.filter((section) => {
+          // Only show top-level sections (child sections render inside their parents)
+          if (section.parentId) return false;
           if (section.name.toLowerCase() === 'later') return true;
           return recentIds.has(section.id);
+        });
+        // Sort: Later first, then by date (most recent first)
+        return filtered.sort((a, b) => {
+          if (a.name.toLowerCase() === 'later') return -1;
+          if (b.name.toLowerCase() === 'later') return 1;
+          return 0; // Keep relative order for date sections
         });
       })().map((section) => (
         <TodoSection
           key={section.id}
           section={section}
           todos={todos.filter((t) => t.sectionId === section.id)}
+          allSections={sections}
+          allTodos={todos}
           confettiEnabled={confettiEnabled}
           onToggleSection={onToggleSection}
           onDeleteSection={onDeleteSection}
           onEditSection={onEditSection}
+          onAddSection={onAddSection}
           onToggleTodo={onToggleTodo}
           onDeleteTodo={onDeleteTodo}
           onEditTodo={onEditTodo}
@@ -784,6 +868,9 @@ export function TodoList({
           onTodoTouchMove={touchDrag.handleTouchMove}
           onTodoTouchEnd={touchDrag.handleTouchEnd}
           dragSelectedCount={dragRef.current?.selectedIds?.size || 1}
+          onConvertTodoToToggle={onConvertTodoToToggle}
+          onToggleCollapse={onToggleCollapse}
+          onClearSelection={handleClearSelection}
         />
       ))}
 
@@ -794,6 +881,7 @@ export function TodoList({
         const todaySection = sections.find((s) => isDateSection(s.name) && s.name.endsWith(todayStr));
 
         const dateSectionsWithTodos = sections.filter((s) => {
+          if (s.parentId) return false; // Exclude child sections
           if (!isDateSection(s.name) || s.name.toLowerCase() === 'later') return false;
           if (todaySection && s.id === todaySection.id) return true; // Always count today
           const sectionTodos = todos.filter((t) => t.sectionId === s.id);

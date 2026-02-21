@@ -18,6 +18,33 @@ function getTodayFormatted(): string {
   return `${dayName}, ${month}/${date}`;
 }
 
+// Check if a date section is from a past day (before today)
+function isPastDateSection(name: string): boolean {
+  if (!isDateSection(name)) return false;
+
+  const match = name.match(/(\d{1,2})\/(\d{1,2})$/);
+  if (!match) return false;
+
+  const month = parseInt(match[1]) - 1; // 0-indexed
+  const day = parseInt(match[2]);
+  const now = new Date();
+  const currentYear = now.getFullYear();
+
+  // Create date for the section (assume current year, adjust if needed)
+  let sectionDate = new Date(currentYear, month, day);
+
+  // If section date is more than 6 months in the future, it's probably from last year
+  if (sectionDate.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
+    sectionDate = new Date(currentYear - 1, month, day);
+  }
+
+  // Compare dates (ignore time)
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const sectionDayStart = new Date(sectionDate.getFullYear(), sectionDate.getMonth(), sectionDate.getDate());
+
+  return sectionDayStart.getTime() < todayStart.getTime();
+}
+
 type DragType = 'todo' | 'section' | null;
 
 interface DragState {
@@ -32,10 +59,13 @@ interface DragState {
 interface Props {
   section: ToggleSection;
   todos: Todo[];
+  allSections: ToggleSection[];
+  allTodos: Todo[];
   confettiEnabled?: boolean;
   onToggleSection: (id: string) => void;
   onDeleteSection: (id: string) => void;
   onEditSection: (id: string, name: string) => void;
+  onAddSection: (name: string, parentId?: string | null) => void;
   onToggleTodo: (id: string) => void;
   onDeleteTodo: (id: string) => void;
   onEditTodo: (id: string, text: string, isBullet?: boolean) => void;
@@ -61,15 +91,22 @@ interface Props {
   onTodoTouchMove?: (e: React.TouchEvent) => void;
   onTodoTouchEnd?: () => void;
   dragSelectedCount?: number;
+  onConvertTodoToToggle?: (todoId: string) => void;
+  onToggleCollapse?: (todoId: string) => void;
+  onClearSelection?: () => void;
+  depth?: number;
 }
 
 export function TodoSection({
   section,
   todos,
+  allSections,
+  allTodos,
   confettiEnabled = false,
   onToggleSection,
   onDeleteSection,
   onEditSection,
+  onAddSection,
   onToggleTodo,
   onDeleteTodo,
   onEditTodo,
@@ -95,6 +132,10 @@ export function TodoSection({
   onTodoTouchMove,
   onTodoTouchEnd,
   dragSelectedCount = 1,
+  onConvertTodoToToggle,
+  onToggleCollapse,
+  onClearSelection,
+  depth = 0,
 }: Props) {
   const addInputRef = useRef<HTMLInputElement>(null);
   const [newTodo, setNewTodo] = useState('');
@@ -104,6 +145,41 @@ export function TodoSection({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [countFlash, setCountFlash] = useState(false);
   const checkableTodos = useMemo(() => todos.filter(t => !t.isBullet), [todos]);
+
+  // Filter out children of collapsed toggles
+  const visibleTodos = useMemo(() => {
+    const result: typeof todos = [];
+    let collapsedToggleIndent: number | null = null;
+
+    for (const todo of todos) {
+      const todoIndent = todo.indent ?? 0;
+
+      // If we're inside a collapsed toggle and this todo is more indented, skip it
+      if (collapsedToggleIndent !== null && todoIndent > collapsedToggleIndent) {
+        continue;
+      }
+
+      // If we hit same or lower indent, we've exited the collapsed toggle's children
+      if (collapsedToggleIndent !== null && todoIndent <= collapsedToggleIndent) {
+        collapsedToggleIndent = null;
+      }
+
+      result.push(todo);
+
+      // If this is a collapsed toggle, start skipping children
+      if (todo.isToggle && todo.toggleCollapsed) {
+        collapsedToggleIndent = todoIndent;
+      }
+    }
+
+    return result;
+  }, [todos]);
+
+  // Get child sections
+  const childSections = useMemo(() =>
+    allSections.filter(s => s.parentId === section.id).sort((a, b) => a.order - b.order),
+    [allSections, section.id]
+  );
   const completedCount = useMemo(() => checkableTodos.filter(t => t.completed).length, [checkableTodos]);
   const prevCompletedRef = useRef(completedCount);
 
@@ -149,7 +225,7 @@ export function TodoSection({
   };
 
   const focusTodoAtIndex = useCallback((index: number, cursorPos?: number) => {
-    const todo = todos[index];
+    const todo = visibleTodos[index];
     if (!todo) return;
     setTimeout(() => {
       const el = document.querySelector(`[data-drag-id="${todo.id}"] .todo-text-input, [data-drag-id="${todo.id}"] .todo-editable`) as HTMLElement;
@@ -169,7 +245,7 @@ export function TodoSection({
         }
       }
     }, 0);
-  }, [todos]);
+  }, [visibleTodos]);
 
   const isSectionDropTarget = dragState.targetId === section.id && dragState.targetType === 'section';
   const isSectionDragging = dragState.draggedId === section.id && dragState.type === 'section';
@@ -256,7 +332,7 @@ export function TodoSection({
           </span>
         )}
         <span className={'section-count' + (countFlash ? ' count-flash' : '')}>{completedCount}/{checkableTodos.length}</span>
-        {isDateSection(section.name) && section.name !== getTodayFormatted() && todos.some(t => !t.completed) && (
+        {isPastDateSection(section.name) && todos.some(t => !t.completed) && (
           <button
             className="section-move-today"
             data-tooltip="Move unfinished to today"
@@ -295,7 +371,7 @@ export function TodoSection({
       </div>
       {!section.collapsed && (
         <div className="section-content">
-          {todos.map((todo, index) => (
+          {visibleTodos.map((todo, index) => (
             <TodoItem
               key={todo.id}
               todo={todo}
@@ -306,9 +382,9 @@ export function TodoSection({
               onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
               onCreateAbove={(id, indent) => onAddTodoBefore('', id, indent)}
               onFocusPrev={index > 0 ? (pos: number) => focusTodoAtIndex(index - 1, pos) : undefined}
-              onFocusNext={index < todos.length - 1 ? (pos: number) => focusTodoAtIndex(index + 1, pos) : () => addInputRef.current?.focus()}
+              onFocusNext={index < visibleTodos.length - 1 ? (pos: number) => focusTodoAtIndex(index + 1, pos) : () => addInputRef.current?.focus()}
               onDeleteAndFocusAbove={index > 0 ? (id) => {
-                const prevTodo = todos[index - 1];
+                const prevTodo = visibleTodos[index - 1];
                 onDeleteTodo(id);
                 // Focus the previous todo's input after a short delay
                 setTimeout(() => {
@@ -335,6 +411,9 @@ export function TodoSection({
               onTouchMove={onTodoTouchMove}
               onTouchEnd={onTodoTouchEnd}
               dragCount={dragState.draggedId === todo.id ? dragSelectedCount : 1}
+              onConvertToToggle={onConvertTodoToToggle}
+              onToggleCollapse={onToggleCollapse}
+              onClearSelection={onClearSelection}
             />
           ))}
           <div
@@ -365,14 +444,60 @@ export function TodoSection({
                 value={newTodo}
                 onChange={(e) => setNewTodo(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'ArrowUp' && todos.length > 0) {
+                  if (e.key === 'ArrowUp' && visibleTodos.length > 0) {
                     e.preventDefault();
                     const pos = (e.target as HTMLInputElement).selectionStart || 0;
-                    focusTodoAtIndex(todos.length - 1, pos);
+                    focusTodoAtIndex(visibleTodos.length - 1, pos);
                   }
                 }}
               />
           </form>
+
+          {/* Child sections (nested toggles) */}
+          {childSections.map((childSection) => (
+            <TodoSection
+              key={childSection.id}
+              section={childSection}
+              todos={allTodos.filter((t) => t.sectionId === childSection.id)}
+              allSections={allSections}
+              allTodos={allTodos}
+              confettiEnabled={confettiEnabled}
+              onToggleSection={onToggleSection}
+              onDeleteSection={onDeleteSection}
+              onEditSection={onEditSection}
+              onAddSection={onAddSection}
+              onToggleTodo={onToggleTodo}
+              onDeleteTodo={onDeleteTodo}
+              onEditTodo={onEditTodo}
+              onIndentTodo={onIndentTodo}
+              onAddTodo={onAddTodo}
+              onAddTodoAfter={onAddTodoAfter}
+              onAddTodoBefore={onAddTodoBefore}
+              onTodoDragStart={onTodoDragStart}
+              onTodoDragOver={onTodoDragOver}
+              onTodoDragLeave={onTodoDragLeave}
+              onTodoDrop={onTodoDrop}
+              onSectionDragStart={onSectionDragStart}
+              onSectionDragOver={onSectionDragOver}
+              onSectionDrop={onSectionDrop}
+              onDropOnSection={onDropOnSection}
+              onDropAtEndOfSection={onDropAtEndOfSection}
+              onMoveToToday={onMoveToToday}
+              dragState={dragState}
+              selectedIds={selectedIds}
+              onTodoSelect={onTodoSelect}
+              onTodoFocusChange={onTodoFocusChange}
+              onTodoTouchStart={onTodoTouchStart}
+              onTodoTouchMove={onTodoTouchMove}
+              onTodoTouchEnd={onTodoTouchEnd}
+              dragSelectedCount={dragSelectedCount}
+              onConvertTodoToToggle={onConvertTodoToToggle}
+              onToggleCollapse={onToggleCollapse}
+              onClearSelection={onClearSelection}
+              depth={depth + 1}
+            />
+          ))}
+
         </div>
       )}
     </div>

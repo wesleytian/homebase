@@ -35,6 +35,8 @@ export interface Todo {
   createdAt: number;
   completedAt: number | null; // timestamp when marked complete
   isBullet?: boolean; // true = bullet note (no checkbox), false/undefined = regular todo
+  isToggle?: boolean; // true = collapsible toggle header, hides indented children when collapsed
+  toggleCollapsed?: boolean; // for toggle todos, whether children are hidden
 }
 
 export interface ToggleSection {
@@ -43,6 +45,7 @@ export interface ToggleSection {
   collapsed: boolean;
   order: number;
   createdAt: number;
+  parentId?: string | null;
 }
 
 export interface GoalSubtask {
