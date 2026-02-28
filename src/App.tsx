@@ -256,6 +256,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   // Helper to format day date (e.g., "Today", "Yesterday", "Sat, Feb 15")
   const getDayDateLabel = useCallback((offset: number) => {
+    if (offset === 1) return 'Tomorrow';
     if (offset === 0) return 'Today';
     if (offset === -1) return 'Yesterday';
     const date = new Date(getDayStartForOffset(offset));
@@ -562,7 +563,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       const dayCompletions = await getCompletionsForDay(targetDayStart);
 
       // Also get the week's completions for weekly count
-      const targetWeekStart = getWeekStart() + Math.floor(dayOffset / 7) * 7 * 24 * 60 * 60 * 1000;
+      const targetWeekStart = getWeekStart(new Date(targetDayStart));
       const weekCompletions = await getCompletionsForWeek(targetWeekStart);
 
       const dayCompletionSet = new Set<string>();
@@ -570,9 +571,13 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         dayCompletionSet.add(c.routineId);
       }
 
+      // Only count completions up to and including the viewed day
+      const dayEnd = targetDayStart + 24 * 60 * 60 * 1000;
       const weekCompletionCounts = new Map<string, number>();
       for (const c of weekCompletions) {
-        weekCompletionCounts.set(c.routineId, (weekCompletionCounts.get(c.routineId) || 0) + 1);
+        if (c.completedAt < dayEnd) {
+          weekCompletionCounts.set(c.routineId, (weekCompletionCounts.get(c.routineId) || 0) + 1);
+        }
       }
 
       const currentWeekStart = getWeekStart();
@@ -606,7 +611,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   }, [routineDayOffset, refreshRoutinesForDay, minDayOffset]);
 
   const handleNextDay = useCallback(() => {
-    if (routineDayOffset >= 0) return;
+    if (routineDayOffset >= 1) return; // Allow up to tomorrow
     const newOffset = routineDayOffset + 1;
     setRoutineDayOffset(newOffset);
     if (newOffset === 0) {
@@ -635,7 +640,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
     // Calculate which week the viewed day falls into
     const targetDayStart = getDayStartForOffset(routineDayOffset);
-    const targetWeekStart = getWeekStart() + Math.floor(routineDayOffset / 7) * 7 * 24 * 60 * 60 * 1000;
+    const targetWeekStart = getWeekStart(new Date(targetDayStart));
 
     let newStreak = routine.currentStreak;
     let newLongest = routine.longestStreak;
@@ -743,7 +748,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     if (!routine || !routine.completedToday) return; // Can only decrement if completed on viewed day
 
     const targetDayStart = getDayStartForOffset(routineDayOffset);
-    const targetWeekStart = getWeekStart() + Math.floor(routineDayOffset / 7) * 7 * 24 * 60 * 60 * 1000;
+    const targetWeekStart = getWeekStart(new Date(targetDayStart));
 
     // Optimistic update - update state immediately
     setRoutines((prev) =>
@@ -1221,12 +1226,24 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     // Update state immediately (optimistic)
     setTodos((prev) => prev.map((t) => (t.id === id ? { ...t, sectionId: newSectionId } : t)));
 
+    // If section has a temp ID (not yet saved to DB), wait for real ID before syncing
+    if (newSectionId && newSectionId.startsWith('temp-')) {
+      const pendingResolve = pendingSectionResolves.current;
+      if (!pendingResolve.has(newSectionId)) {
+        pendingResolve.set(newSectionId, []);
+      }
+      pendingResolve.get(newSectionId)!.push(id);
+      return;
+    }
+
     // Sync only the section field to DB (avoid overwriting other fields like text)
     updateTodoSection(id, newSectionId).catch(onTodoError);
   };
 
   // Section handlers - track sections being added to prevent duplicates
   const addingSectionsRef = useRef<Set<string>>(new Set());
+  // Track todo moves that are waiting for a temp section ID to resolve to a real one
+  const pendingSectionResolves = useRef<Map<string, string[]>>(new Map());
 
   const handleAddSection = async (name: string, parentId?: string | null) => {
     trackEvent('action', { action: 'section_created', name }); trackFeatureUsed('todos');
@@ -1269,6 +1286,19 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     // Sync to DB in background and update with real ID
     addSection(name, parentId).then(realSection => {
       setSections(prev => prev.map(s => s.id === tempId ? realSection : s));
+      // Flush any pending todo moves that were waiting for this section's real ID
+      const pendingTodoIds = pendingSectionResolves.current.get(tempId);
+      if (pendingTodoIds && pendingTodoIds.length > 0) {
+        pendingSectionResolves.current.delete(tempId);
+        setTodos(prev => prev.map(t =>
+          pendingTodoIds.includes(t.id) && t.sectionId === tempId
+            ? { ...t, sectionId: realSection.id }
+            : t
+        ));
+        for (const todoId of pendingTodoIds) {
+          updateTodoSection(todoId, realSection.id).catch(onTodoError);
+        }
+      }
     }).catch(err => {
       // Remove optimistic section on error
       setSections(prev => prev.filter(s => s.id !== tempId));
@@ -1575,6 +1605,16 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     }
   };
 
+  const handleReorderFriends = async (updates: { id: string; tier?: number; order?: number }[]) => {
+    for (const update of updates) {
+      const friend = friends.find(f => f.id === update.id);
+      if (friend) {
+        await updateFriend({ ...friend, ...update } as Friend);
+      }
+    }
+    loadData();
+  };
+
   const handleFriendsSectionsChange = async (sections: FriendSection[]) => {
     setFriendsSections(sections);
     // Save to database
@@ -1696,6 +1736,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onEditFriend={handleEditFriend}
           onDeleteFriend={handleDeleteFriend}
           onSectionsChange={handleFriendsSectionsChange}
+          onReorderFriends={handleReorderFriends}
           pushUndo={pushUndo}
         />
         </Suspense>

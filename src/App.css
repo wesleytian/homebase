@@ -3126,13 +3126,13 @@ main {
 }
 
 .delete-section-btn {
-  width: 24px;
-  height: 24px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   border: none;
   background: #f0ebe4;
   color: #999;
-  font-size: 1rem;
+  font-size: 0.85rem;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3145,16 +3145,16 @@ main {
 }
 
 .friends-lists {
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 .friends-list-section {
   position: relative;
   background: #fff;
   border-radius: 8px;
-  padding: 16px;
+  padding: 10px 12px;
   box-shadow: 0 2px 10px rgba(45, 42, 38, 0.06);
   transition: background 0.15s, border-color 0.15s, margin 0.15s;
 }
@@ -3210,7 +3210,7 @@ main {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 4px;
   cursor: grab;
 }
 
@@ -3226,7 +3226,7 @@ main {
 }
 
 .friends-list-header h2 {
-  font-size: 0.95rem;
+  font-size: 0.85rem;
   font-weight: 600;
   color: #2d2a26;
   margin: 0;
@@ -3250,14 +3250,116 @@ main {
   border-bottom-color: #f5a623;
 }
 
-.add-pill-btn {
-  width: 28px;
-  height: 28px;
+.friends-rows {
+  display: flex;
+  flex-direction: column;
+  min-height: 8px;
+}
+
+.friends-empty {
+  color: #a39b91;
+  font-size: 0.85rem;
+  font-style: italic;
+  padding: 4px 8px;
+}
+
+.friend-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  position: relative;
+  cursor: grab;
+}
+
+.friend-row:hover {
+  background: #f8f6f3;
+}
+
+.friend-row.dragging {
+  opacity: 0.4;
+}
+
+.friend-row.drop-above::before {
+  content: '';
+  position: absolute;
+  top: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #f5a623, #ff8a50);
+  border-radius: 1px;
+  z-index: 1;
+}
+
+.friend-row.drop-below::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #f5a623, #ff8a50);
+  border-radius: 1px;
+  z-index: 1;
+}
+
+.friend-row-handle {
+  color: #ccc;
+  font-size: 0.7rem;
+  cursor: grab;
+  user-select: none;
+}
+
+.friend-row:hover .friend-row-handle {
+  color: #999;
+}
+
+.friend-row-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 0.85rem;
+  font-family: inherit;
+  color: #2d2a26;
+  padding: 2px 0;
+  outline: none;
+  min-width: 0;
+}
+
+.friend-row-input::placeholder {
+  color: #c0b8ad;
+}
+
+.friend-row-delete {
+  background: none;
+  border: none;
+  color: #ccc;
+  cursor: pointer;
+  font-size: 1rem;
+  padding: 2px 4px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.friend-row:hover .friend-row-delete {
+  opacity: 1;
+}
+
+.friend-row-delete:hover {
+  color: #e57373;
+}
+
+.add-friend-row-btn {
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   border: none;
   background: #e8a87c;
   color: #fff;
-  font-size: 1.1rem;
+  font-size: 0.9rem;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -3265,92 +3367,8 @@ main {
   transition: all 0.2s;
 }
 
-.add-pill-btn:hover {
+.add-friend-row-btn:hover {
   background: #d4956a;
-}
-
-.friends-pills {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.empty-pill {
-  color: #a39b91;
-  font-size: 0.85rem;
-  font-style: italic;
-}
-
-.friend-pill {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: #f5f0eb;
-  padding: 6px 10px;
-  border-radius: 20px;
-  font-size: 0.85rem;
-  cursor: grab;
-}
-
-.friend-pill.dragging {
-  opacity: 0.5;
-}
-
-.friend-pill.close {
-  background: #fdf2e9;
-  border: 1px solid #e8a87c;
-}
-
-.friend-drag-handle {
-  color: #ccc;
-  font-size: 0.7rem;
-  cursor: grab;
-  user-select: none;
-}
-
-.friend-pill:hover .friend-drag-handle {
-  color: #999;
-}
-
-.friend-pill-name {
-  color: #2d2a26;
-  cursor: pointer;
-}
-
-.friend-pill-name:hover {
-  text-decoration: underline;
-}
-
-.friend-pill-edit {
-  border: none;
-  background: transparent;
-  font-size: inherit;
-  font-family: inherit;
-  padding: 0;
-  width: 80px;
-  outline: none;
-  border-bottom: 1px solid #e8a87c;
-}
-
-.friend-pill-actions {
-  display: flex;
-  gap: 4px;
-}
-
-.friend-pill-move {
-  background: none;
-  border: none;
-  color: #a39b91;
-  cursor: pointer;
-  font-size: 1.1rem;
-  padding: 2px 4px;
-  line-height: 1;
-  transition: color 0.15s, transform 0.15s;
-}
-
-.friend-pill-move:hover {
-  color: #4ecdc4;
-  transform: scale(1.2);
 }
 
 /* Add Friend Modal */

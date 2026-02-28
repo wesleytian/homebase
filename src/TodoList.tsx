@@ -245,12 +245,12 @@ export function TodoList({
     },
   });
 
-  // Compute next available day section (today or tomorrow only)
+  // Compute next available day section (today through next 7 days)
   const dayNames = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
   const existingNames = new Set(sections.map((s) => s.name.trim()));
   let nextDaySection: string | null = null;
   const now = new Date();
-  for (let offset = 0; offset <= 1; offset++) {
+  for (let offset = 0; offset <= 6; offset++) {
     const d = new Date(now);
     d.setDate(d.getDate() + offset);
     const name = `${dayNames[d.getDay()]}, ${d.getMonth() + 1}/${d.getDate()}`;

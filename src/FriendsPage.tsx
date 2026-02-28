@@ -10,6 +10,7 @@ interface Props {
   onEditFriend: (id: string, updates: Partial<Friend>) => void;
   onDeleteFriend: (id: string) => void;
   onSectionsChange: (sections: FriendSection[]) => void;
+  onReorderFriends: (updates: { id: string; tier?: number; order?: number }[]) => Promise<void>;
   pushUndo?: (action: UndoAction) => void;
 }
 
@@ -18,9 +19,9 @@ type DragType = 'friend' | 'section' | null;
 interface DragState {
   type: DragType;
   draggedId: string | null;
-  // For friend drags: which section to drop into
+  targetId: string | null;
+  position: 'above' | 'below' | null;
   targetSectionId: string | null;
-  // For section drags: which index to insert at (0 = before first, 1 = after first, etc.)
   dropIndex: number | null;
 }
 
@@ -32,13 +33,9 @@ export function FriendsPage({
   onEditFriend,
   onDeleteFriend,
   onSectionsChange,
+  onReorderFriends,
   pushUndo,
 }: Props) {
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [addingToSectionId, setAddingToSectionId] = useState<string>('close');
-  const [editingFriendId, setEditingFriendId] = useState<string | null>(null);
-  const [editFriendName, setEditFriendName] = useState('');
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [editSectionName, setEditSectionName] = useState('');
   const [showAddSectionModal, setShowAddSectionModal] = useState(false);
@@ -46,54 +43,36 @@ export function FriendsPage({
   const [dragState, setDragState] = useState<DragState>({
     type: null,
     draggedId: null,
+    targetId: null,
+    position: null,
     targetSectionId: null,
     dropIndex: null,
   });
   const dragRef = useRef<{ type: DragType; id: string } | null>(null);
+  const inputRefs = useRef<Map<string, HTMLInputElement>>(new Map());
+  const pendingFocusRef = useRef<string | null>(null);
 
   const getFriendsInSection = (section: FriendSection) => {
-    return friends.filter(f => f.tier === section.tier);
+    return friends.filter(f => f.tier === section.tier).sort((a, b) => a.order - b.order);
   };
 
-  const handleAddFriend = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newName.trim()) {
-      const section = sections.find(s => s.id === addingToSectionId);
-      const tier = (section?.tier || 1) as FriendTier;
-      const name = newName.trim();
-      const result = await onAddFriend(name, tier);
-
-      // Push undo action if we got a friend back and have pushUndo
-      if (pushUndo && result && 'id' in result) {
-        const friendId = result.id;
-        pushUndo({
-          type: 'add-friend',
-          description: `Add friend "${name}"`,
-          undo: () => onDeleteFriend(friendId),
-        });
+  // Focus pending input after render
+  useEffect(() => {
+    if (pendingFocusRef.current) {
+      const input = inputRefs.current.get(pendingFocusRef.current);
+      if (input) {
+        input.focus();
+        pendingFocusRef.current = null;
       }
-
-      setNewName('');
-      setShowAddModal(false);
     }
-  };
+  });
 
-  const openAddFriendModal = (sectionId: string) => {
-    setAddingToSectionId(sectionId);
-    setShowAddModal(true);
-  };
-
+  // Escape to close modals or go back
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // Close modals first, then editing states, then go back
-        if (showAddModal) {
-          setShowAddModal(false);
-        } else if (showAddSectionModal) {
+        if (showAddSectionModal) {
           setShowAddSectionModal(false);
-        } else if (editingFriendId) {
-          setEditingFriendId(null);
-          setEditFriendName('');
         } else if (editingSectionId) {
           setEditingSectionId(null);
           setEditSectionName('');
@@ -104,163 +83,224 @@ export function FriendsPage({
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [showAddModal, showAddSectionModal, editingFriendId, editingSectionId, onBack]);
+  }, [showAddSectionModal, editingSectionId, onBack]);
 
-  // Friend drag handlers
-  const handleFriendDragStart = (e: React.DragEvent, friendId: string) => {
-    dragRef.current = { type: 'friend', id: friendId };
-    setDragState({ type: 'friend', draggedId: friendId, targetSectionId: null, dropIndex: null });
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  // When dragging a friend over a section (to move friend between sections)
-  const handleFriendDropZoneDragOver = (e: React.DragEvent, sectionId: string) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragRef.current?.type === 'friend') {
-      setDragState(s => ({ ...s, targetSectionId: sectionId }));
+  // Get all friends ordered by section then by order
+  const getAllFriendsOrdered = () => {
+    const result: Friend[] = [];
+    for (const section of sections) {
+      result.push(...getFriendsInSection(section));
     }
+    return result;
   };
 
-  const handleFriendDropZoneDrop = (e: React.DragEvent, sectionId: string) => {
-    e.preventDefault();
-    if (dragRef.current?.type === 'friend') {
-      const friend = friends.find(f => f.id === dragRef.current!.id);
-      const targetSection = sections.find(s => s.id === sectionId);
-      if (friend && targetSection && friend.tier !== targetSection.tier) {
-        onEditFriend(friend.id, { tier: targetSection.tier as FriendTier });
-      }
-    }
-    resetDragState();
-  };
-
-  // Section drag handlers - simplified with explicit drop zones
-  const handleSectionDragStart = (e: React.DragEvent, sectionId: string) => {
-    dragRef.current = { type: 'section', id: sectionId };
-    setDragState({ type: 'section', draggedId: sectionId, targetSectionId: null, dropIndex: null });
-    e.dataTransfer.effectAllowed = 'move';
-  };
-
-  // Drop zone between sections - dropIndex is where the section will be inserted
-  const handleSectionDropZoneDragOver = (e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (dragRef.current?.type === 'section') {
-      setDragState(s => ({ ...s, dropIndex }));
-    }
-  };
-
-  const handleSectionDropZoneDragLeave = () => {
-    if (dragRef.current?.type === 'section') {
-      setDragState(s => ({ ...s, dropIndex: null }));
-    }
-  };
-
-  const handleSectionDropZoneDrop = (e: React.DragEvent, dropIndex: number) => {
-    e.preventDefault();
-    if (dragRef.current?.type === 'section') {
-      const draggedIdx = sections.findIndex(s => s.id === dragRef.current!.id);
-      if (draggedIdx === -1) {
-        resetDragState();
-        return;
-      }
-
-      // Calculate the actual insert position
-      // If dragging from before the drop zone, the effective index shifts down by 1
-      const effectiveDropIndex = draggedIdx < dropIndex ? dropIndex - 1 : dropIndex;
-
-      if (effectiveDropIndex === draggedIdx) {
-        // No change needed
-        resetDragState();
-        return;
-      }
-
-      const newSections = [...sections];
-      const [dragged] = newSections.splice(draggedIdx, 1);
-      newSections.splice(effectiveDropIndex, 0, dragged);
-
-      // Reassign tiers based on new order
-      const updatedSections = newSections.map((s, idx) => ({ ...s, tier: idx + 1 }));
-
-      // Update friends with new tiers
-      const tierMapping: Record<number, number> = {};
-      sections.forEach((oldSection) => {
-        const newIdx = updatedSections.findIndex(s => s.id === oldSection.id);
-        tierMapping[oldSection.tier] = updatedSections[newIdx].tier;
-      });
-
-      friends.forEach(friend => {
-        const newTier = tierMapping[friend.tier];
-        if (newTier !== friend.tier) {
-          onEditFriend(friend.id, { tier: newTier as FriendTier });
-        }
-      });
-
-      onSectionsChange(updatedSections);
-    }
-    resetDragState();
-  };
-
-  const handleDragEnd = () => {
-    resetDragState();
-  };
-
-  const resetDragState = () => {
-    setDragState({ type: null, draggedId: null, targetSectionId: null, dropIndex: null });
-    dragRef.current = null;
-  };
-
-  // Check if a drop zone should be shown (not adjacent to the dragged section)
-  const shouldShowDropZone = (dropIndex: number): boolean => {
-    // Check both state and ref (ref is synchronous, state might be delayed)
-    const isDraggingSection = dragState.type === 'section' || dragRef.current?.type === 'section';
-    const draggedId = dragState.draggedId || dragRef.current?.id;
-    if (!isDraggingSection || !draggedId) return false;
-    const draggedIdx = sections.findIndex(s => s.id === draggedId);
-    // Don't show drop zone right before or right after the dragged item (it would result in no change)
-    return dropIndex !== draggedIdx && dropIndex !== draggedIdx + 1;
-  };
-
-  const moveFriend = (friend: Friend, direction: 'up' | 'down') => {
-    const currentIdx = sections.findIndex(s => s.tier === friend.tier);
-    const targetIdx = direction === 'up' ? currentIdx - 1 : currentIdx + 1;
-    if (targetIdx >= 0 && targetIdx < sections.length) {
-      const oldTier = friend.tier;
-      const newTier = sections[targetIdx].tier as FriendTier;
-      onEditFriend(friend.id, { tier: newTier });
-
+  // Add friend inline
+  const addFriendToSection = async (sectionId: string) => {
+    const section = sections.find(s => s.id === sectionId);
+    const tier = (section?.tier || 1) as FriendTier;
+    const result = await onAddFriend('', tier);
+    if (result && 'id' in result) {
+      pendingFocusRef.current = result.id;
       if (pushUndo) {
+        const friendId = result.id;
         pushUndo({
-          type: 'move-friend',
-          description: `Move "${friend.name}" ${direction}`,
-          undo: () => onEditFriend(friend.id, { tier: oldTier }),
+          type: 'add-friend',
+          description: 'Add friend',
+          undo: () => onDeleteFriend(friendId),
         });
       }
     }
   };
 
-  const startEditingFriend = (friend: Friend) => {
-    setEditingFriendId(friend.id);
-    setEditFriendName(friend.name);
-  };
-
-  const saveEditFriend = () => {
-    if (editingFriendId && editFriendName.trim()) {
-      onEditFriend(editingFriendId, { name: editFriendName.trim() });
-    }
-    setEditingFriendId(null);
-    setEditFriendName('');
-  };
-
-  const handleEditFriendKeyDown = (e: React.KeyboardEvent) => {
+  // Friend row keyboard handling
+  const handleFriendKeyDown = (e: React.KeyboardEvent<HTMLInputElement>, friend: Friend, sectionId: string) => {
     if (e.key === 'Enter') {
-      saveEditFriend();
-    } else if (e.key === 'Escape') {
-      setEditingFriendId(null);
-      setEditFriendName('');
+      e.preventDefault();
+      const name = e.currentTarget.value.trim();
+      if (!name) return; // Don't create new row if current is empty
+      if (name !== friend.name) {
+        onEditFriend(friend.id, { name });
+      }
+      addFriendToSection(sectionId);
+    } else if (e.key === 'Backspace' && e.currentTarget.value === '') {
+      e.preventDefault();
+      // Focus previous friend
+      const allFriends = getAllFriendsOrdered();
+      const idx = allFriends.findIndex(f => f.id === friend.id);
+      if (idx > 0) {
+        pendingFocusRef.current = allFriends[idx - 1].id;
+      }
+      onDeleteFriend(friend.id);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const allFriends = getAllFriendsOrdered();
+      const idx = allFriends.findIndex(f => f.id === friend.id);
+      if (idx > 0) {
+        inputRefs.current.get(allFriends[idx - 1].id)?.focus();
+      }
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      const allFriends = getAllFriendsOrdered();
+      const idx = allFriends.findIndex(f => f.id === friend.id);
+      if (idx < allFriends.length - 1) {
+        inputRefs.current.get(allFriends[idx + 1].id)?.focus();
+      }
     }
   };
 
+  // Save on blur, delete if empty
+  const handleFriendBlur = (friend: Friend, value: string) => {
+    const name = value.trim();
+    if (name === '' && friend.name === '') {
+      onDeleteFriend(friend.id);
+    } else if (name && name !== friend.name) {
+      onEditFriend(friend.id, { name });
+    }
+  };
+
+  // --- Friend drag handlers ---
+  const handleFriendDragStart = (e: React.DragEvent, friendId: string) => {
+    dragRef.current = { type: 'friend', id: friendId };
+    setDragState(s => ({ ...s, type: 'friend', draggedId: friendId }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleFriendDragOver = (e: React.DragEvent, friendId: string) => {
+    e.preventDefault();
+    if (dragRef.current?.type !== 'friend' || dragRef.current.id === friendId) return;
+    e.dataTransfer.dropEffect = 'move';
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const position = e.clientY < midY ? 'above' : 'below';
+    setDragState(s => ({ ...s, targetId: friendId, position }));
+  };
+
+  const handleFriendDragLeave = () => {
+    setDragState(s => ({ ...s, targetId: null, position: null }));
+  };
+
+  const handleFriendDrop = (e: React.DragEvent, targetFriendId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (dragRef.current?.type !== 'friend') { resetDragState(); return; }
+
+    const draggedId = dragRef.current.id;
+    if (draggedId === targetFriendId) { resetDragState(); return; }
+
+    const draggedFriend = friends.find(f => f.id === draggedId);
+    const targetFriend = friends.find(f => f.id === targetFriendId);
+    if (!draggedFriend || !targetFriend) { resetDragState(); return; }
+
+    const targetSection = sections.find(s => s.tier === targetFriend.tier);
+    if (!targetSection) { resetDragState(); return; }
+
+    const position = dragState.position || 'below';
+
+    // Build new ordered list for target section
+    const targetSectionFriends = friends
+      .filter(f => f.tier === targetSection.tier && f.id !== draggedId)
+      .sort((a, b) => a.order - b.order);
+
+    const targetIdx = targetSectionFriends.findIndex(f => f.id === targetFriendId);
+    const insertIdx = position === 'above' ? targetIdx : targetIdx + 1;
+    targetSectionFriends.splice(insertIdx, 0, draggedFriend);
+
+    const updates: { id: string; tier?: number; order?: number }[] = [];
+    targetSectionFriends.forEach((f, idx) => {
+      const needsTierUpdate = f.id === draggedId && f.tier !== targetSection.tier;
+      const needsOrderUpdate = f.order !== idx;
+      if (needsTierUpdate || needsOrderUpdate) {
+        updates.push({
+          id: f.id,
+          ...(needsTierUpdate ? { tier: targetSection.tier } : {}),
+          order: idx,
+        });
+      }
+    });
+
+    // If moved across sections, reorder source section too
+    if (draggedFriend.tier !== targetSection.tier) {
+      const sourceFriends = friends
+        .filter(f => f.tier === draggedFriend.tier && f.id !== draggedId)
+        .sort((a, b) => a.order - b.order);
+      sourceFriends.forEach((f, idx) => {
+        if (f.order !== idx) {
+          updates.push({ id: f.id, order: idx });
+        }
+      });
+    }
+
+    if (updates.length > 0) {
+      onReorderFriends(updates);
+      if (pushUndo) {
+        const oldTier = draggedFriend.tier;
+        const oldOrder = draggedFriend.order;
+        pushUndo({
+          type: 'move-friend',
+          description: `Move "${draggedFriend.name}"`,
+          undo: () => onEditFriend(draggedId, { tier: oldTier, order: oldOrder }),
+        });
+      }
+    }
+
+    resetDragState();
+  };
+
+  // Drop on empty section body
+  const handleSectionBodyDragOver = (e: React.DragEvent, sectionId: string) => {
+    if (dragRef.current?.type !== 'friend') return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragState(s => ({ ...s, targetSectionId: sectionId, targetId: null, position: null }));
+  };
+
+  const handleSectionBodyDrop = (e: React.DragEvent, sectionId: string) => {
+    e.preventDefault();
+    if (dragRef.current?.type !== 'friend') { resetDragState(); return; }
+
+    const draggedId = dragRef.current.id;
+    const draggedFriend = friends.find(f => f.id === draggedId);
+    const targetSection = sections.find(s => s.id === sectionId);
+    if (!draggedFriend || !targetSection) { resetDragState(); return; }
+
+    // Move to end of section
+    const sectionFriends = friends
+      .filter(f => f.tier === targetSection.tier && f.id !== draggedId)
+      .sort((a, b) => a.order - b.order);
+
+    const updates: { id: string; tier?: number; order?: number }[] = [
+      { id: draggedId, tier: targetSection.tier, order: sectionFriends.length },
+    ];
+
+    // Reorder source section if different
+    if (draggedFriend.tier !== targetSection.tier) {
+      const sourceFriends = friends
+        .filter(f => f.tier === draggedFriend.tier && f.id !== draggedId)
+        .sort((a, b) => a.order - b.order);
+      sourceFriends.forEach((f, idx) => {
+        if (f.order !== idx) updates.push({ id: f.id, order: idx });
+      });
+    }
+
+    if (updates.length > 0) onReorderFriends(updates);
+    resetDragState();
+  };
+
+  // --- Section drag handlers ---
+  const handleSectionDragStart = (e: React.DragEvent, sectionId: string) => {
+    dragRef.current = { type: 'section', id: sectionId };
+    setDragState(s => ({ ...s, type: 'section', draggedId: sectionId }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnd = () => resetDragState();
+
+  const resetDragState = () => {
+    setDragState({ type: null, draggedId: null, targetId: null, position: null, targetSectionId: null, dropIndex: null });
+    dragRef.current = null;
+  };
+
+  // --- Section editing ---
   const startEditingSection = (section: FriendSection) => {
     setEditingSectionId(section.id);
     setEditSectionName(section.name);
@@ -278,9 +318,8 @@ export function FriendsPage({
   };
 
   const handleEditSectionKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      saveEditSection();
-    } else if (e.key === 'Escape') {
+    if (e.key === 'Enter') saveEditSection();
+    else if (e.key === 'Escape') {
       setEditingSectionId(null);
       setEditSectionName('');
     }
@@ -289,15 +328,9 @@ export function FriendsPage({
   const handleAddSection = (e: React.FormEvent) => {
     e.preventDefault();
     if (newSectionName.trim()) {
-      // Find a tier that no section AND no friend currently uses
-      const usedTiers = new Set([
-        ...sections.map(s => s.tier),
-        ...friends.map(f => f.tier),
-      ]);
+      const usedTiers = new Set([...sections.map(s => s.tier), ...friends.map(f => f.tier)]);
       let newTier = 1;
-      while (usedTiers.has(newTier)) {
-        newTier++;
-      }
+      while (usedTiers.has(newTier)) newTier++;
       const newSection: FriendSection = {
         id: `section-${Date.now()}`,
         name: newSectionName.trim(),
@@ -312,69 +345,15 @@ export function FriendsPage({
   const deleteSection = (sectionId: string) => {
     const section = sections.find(s => s.id === sectionId);
     if (!section) return;
-
-    // Move friends from deleted section to the previous section (or first if none)
     const sectionIdx = sections.findIndex(s => s.id === sectionId);
     const targetSection = sections[sectionIdx - 1] || sections[sectionIdx + 1];
-
     if (targetSection) {
       const friendsInSection = getFriendsInSection(section);
       friendsInSection.forEach(friend => {
         onEditFriend(friend.id, { tier: targetSection.tier as FriendTier });
       });
     }
-
     onSectionsChange(sections.filter(s => s.id !== sectionId));
-  };
-
-  const renderFriendPill = (friend: Friend, sectionIdx: number) => {
-    const isEditing = editingFriendId === friend.id;
-    const isFirstSection = sectionIdx === 0;
-    const isLastSection = sectionIdx === sections.length - 1;
-    const isDragging = dragState.draggedId === friend.id && dragState.type === 'friend';
-
-    return (
-      <div
-        key={friend.id}
-        className={`friend-pill ${sectionIdx === 0 ? 'close' : ''} ${isDragging ? 'dragging' : ''}`}
-        draggable={!isEditing}
-        onDragStart={(e) => handleFriendDragStart(e, friend.id)}
-        onDragEnd={handleDragEnd}
-      >
-        <span className="friend-drag-handle">⋮⋮</span>
-        {isEditing ? (
-          <input
-            type="text"
-            className="friend-pill-edit"
-            value={editFriendName}
-            onChange={(e) => setEditFriendName(e.target.value)}
-            onBlur={saveEditFriend}
-            onKeyDown={handleEditFriendKeyDown}
-            autoFocus
-          />
-        ) : (
-          <span className="friend-pill-name" onClick={() => startEditingFriend(friend)}>
-            {friend.name}
-          </span>
-        )}
-        <div className="friend-pill-actions">
-          {!isFirstSection && (
-            <button
-              className="friend-pill-move"
-              onClick={() => moveFriend(friend, 'up')}
-              title={`Move to ${sections[sectionIdx - 1]?.name}`}
-            >↑</button>
-          )}
-          {!isLastSection && (
-            <button
-              className="friend-pill-move"
-              onClick={() => moveFriend(friend, 'down')}
-              title={`Move to ${sections[sectionIdx + 1]?.name}`}
-            >↓</button>
-          )}
-        </div>
-      </div>
-    );
   };
 
   const renderSectionTitle = (section: FriendSection) => {
@@ -398,10 +377,6 @@ export function FriendsPage({
     );
   };
 
-  const getSectionTitle = (sectionId: string) => {
-    return sections.find(s => s.id === sectionId)?.name || 'Section';
-  };
-
   return (
     <div className="friends-page-simple">
       <div className="friends-page-header">
@@ -411,89 +386,83 @@ export function FriendsPage({
       </div>
 
       <div className="friends-lists">
-        {sections.map((section, idx) => {
+        {sections.map((section) => {
           const sectionFriends = getFriendsInSection(section);
-          const isFriendDropTarget = dragState.targetSectionId === section.id && dragState.type === 'friend';
           const isSectionDragging = dragState.draggedId === section.id && dragState.type === 'section';
-
-          // Determine if this drop zone should be visible
-          const showDropZoneBefore = shouldShowDropZone(idx);
+          const isFriendDropTarget = dragState.targetSectionId === section.id && dragState.type === 'friend';
 
           return (
-            <div key={section.id}>
-              {/* Drop zone BEFORE this section (for section reordering) - always rendered, visibility controlled by CSS */}
+            <div
+              key={section.id}
+              className={`friends-list-section ${isFriendDropTarget ? 'drop-target' : ''} ${isSectionDragging ? 'dragging' : ''}`}
+            >
               <div
-                className={`section-drop-zone ${showDropZoneBefore ? 'visible' : ''} ${dragState.dropIndex === idx ? 'active' : ''}`}
-                onDragOver={(e) => handleSectionDropZoneDragOver(e, idx)}
-                onDragLeave={handleSectionDropZoneDragLeave}
-                onDrop={(e) => handleSectionDropZoneDrop(e, idx)}
-              />
-
-              <div
-                className={`friends-list-section ${idx === sections.length - 1 ? 'no-follow' : ''} ${isFriendDropTarget ? 'drop-target' : ''} ${isSectionDragging ? 'dragging' : ''}`}
-                onDragOver={(e) => handleFriendDropZoneDragOver(e, section.id)}
-                onDrop={(e) => handleFriendDropZoneDrop(e, section.id)}
-                onDragLeave={() => setDragState(s => ({ ...s, targetSectionId: null }))}
+                className="friends-list-header"
+                draggable
+                onDragStart={(e) => handleSectionDragStart(e, section.id)}
+                onDragEnd={handleDragEnd}
               >
-                <div
-                  className="friends-list-header"
-                  draggable
-                  onDragStart={(e) => handleSectionDragStart(e, section.id)}
-                  onDragEnd={handleDragEnd}
-                >
-                  <span className="section-drag-handle">⋮⋮</span>
-                  {renderSectionTitle(section)}
-                  <div className="section-actions">
-                    <button className="add-pill-btn" onClick={() => openAddFriendModal(section.id)}>+</button>
-                    {sections.length > 1 && (
-                      <button
-                        className="delete-section-btn"
-                        onClick={() => deleteSection(section.id)}
-                        title="Delete section"
-                      >×</button>
-                    )}
-                  </div>
-                </div>
-                <div className="friends-pills">
-                  {sectionFriends.length === 0 ? (
-                    <span className="empty-pill">No one here yet</span>
-                  ) : (
-                    sectionFriends.map(friend => renderFriendPill(friend, idx))
+                <span className="section-drag-handle">⋮⋮</span>
+                {renderSectionTitle(section)}
+                <div className="section-actions">
+                  <button className="add-friend-row-btn" onClick={() => addFriendToSection(section.id)}>+</button>
+                  {sections.length > 1 && (
+                    <button
+                      className="delete-section-btn"
+                      onClick={() => deleteSection(section.id)}
+                      title="Delete section"
+                    >×</button>
                   )}
                 </div>
+              </div>
+              <div
+                className="friends-rows"
+                onDragOver={(e) => handleSectionBodyDragOver(e, section.id)}
+                onDrop={(e) => handleSectionBodyDrop(e, section.id)}
+                onDragLeave={() => setDragState(s => ({ ...s, targetSectionId: null }))}
+              >
+                {sectionFriends.length === 0 ? (
+                  <span className="friends-empty">No one here yet</span>
+                ) : (
+                  sectionFriends.map(friend => {
+                    const isDragging = dragState.draggedId === friend.id && dragState.type === 'friend';
+                    const isDropTarget = dragState.targetId === friend.id;
+                    const dropPos = isDropTarget ? dragState.position : null;
+
+                    return (
+                      <div
+                        key={friend.id}
+                        className={`friend-row ${isDragging ? 'dragging' : ''} ${dropPos ? `drop-${dropPos}` : ''}`}
+                        draggable
+                        onDragStart={(e) => handleFriendDragStart(e, friend.id)}
+                        onDragOver={(e) => handleFriendDragOver(e, friend.id)}
+                        onDragLeave={handleFriendDragLeave}
+                        onDrop={(e) => handleFriendDrop(e, friend.id)}
+                        onDragEnd={handleDragEnd}
+                      >
+                        <span className="friend-row-handle">⋮⋮</span>
+                        <input
+                          ref={(el) => {
+                            if (el) inputRefs.current.set(friend.id, el);
+                            else inputRefs.current.delete(friend.id);
+                          }}
+                          type="text"
+                          className="friend-row-input"
+                          defaultValue={friend.name}
+                          placeholder="Name..."
+                          onBlur={(e) => handleFriendBlur(friend, e.target.value)}
+                          onKeyDown={(e) => handleFriendKeyDown(e, friend, section.id)}
+                        />
+                        <button className="friend-row-delete" onClick={() => onDeleteFriend(friend.id)}>×</button>
+                      </div>
+                    );
+                  })
+                )}
               </div>
             </div>
           );
         })}
-        {/* Drop zone AFTER the last section (for section reordering) */}
-        <div
-          className={`section-drop-zone ${shouldShowDropZone(sections.length) ? 'visible' : ''} ${dragState.dropIndex === sections.length ? 'active' : ''}`}
-          onDragOver={(e) => handleSectionDropZoneDragOver(e, sections.length)}
-          onDragLeave={handleSectionDropZoneDragLeave}
-          onDrop={(e) => handleSectionDropZoneDrop(e, sections.length)}
-        />
       </div>
-
-      {showAddModal && (
-        <div className="add-friend-modal-overlay" onClick={() => setShowAddModal(false)}>
-          <div className="add-friend-modal" onClick={e => e.stopPropagation()}>
-            <h3>Add to {getSectionTitle(addingToSectionId)}</h3>
-            <form onSubmit={handleAddFriend}>
-              <input
-                type="text"
-                placeholder="Name"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                autoFocus
-              />
-              <div className="add-friend-modal-actions">
-                <button type="button" onClick={() => setShowAddModal(false)}>Cancel</button>
-                <button type="submit" disabled={!newName.trim()}>Add</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {showAddSectionModal && (
         <div className="add-friend-modal-overlay" onClick={() => setShowAddSectionModal(false)}>
