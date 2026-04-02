@@ -236,6 +236,8 @@ export function TodoList({
     getItemId: (t) => t.id,
     targetSelector: '.todo-item',
     onReorder: onReorderTodos,
+    getItemSectionId: (t) => t.sectionId,
+    onMoveToSection: onMoveTodo,
     onDragStateChange: (draggedId, targetId, position) => {
       if (draggedId) {
         setDragState((s) => ({ ...s, type: 'todo', draggedId, targetId, targetType: 'todo', position, targetIndent: 0 }));

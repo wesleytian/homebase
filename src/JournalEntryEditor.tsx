@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { JournalEntry } from './types';
+import { getRandomAffirmations } from './affirmations';
 
 interface Props {
   entry: JournalEntry | null;
@@ -28,6 +29,8 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
     learned: '',
   });
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+  const [inspoAffirmations, setInspoAffirmations] = useState<string[] | null>(null);
+  const [inspoExpanded, setInspoExpanded] = useState(true);
   const textareaRefs = useRef<Map<string, HTMLTextAreaElement>>(new Map());
   const saveTimeoutRef = useRef<number | null>(null);
   const savedTimeoutRef = useRef<number | null>(null);
@@ -126,7 +129,27 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
             <h3>☀️ Morning</h3>
             {MORNING_QUESTIONS.map(({ key, label }) => (
               <div key={key} className="journal-question">
-                <label>{label}</label>
+                <label>
+                  {label}
+                  {key === 'affirmations' && (
+                    <button
+                      className="journal-inspire-btn"
+                      onClick={() => setInspoAffirmations(getRandomAffirmations(5))}
+                    >
+                      Inspire me
+                    </button>
+                  )}
+                </label>
+                {key === 'affirmations' && inspoAffirmations && (
+                  <div className="journal-inspo-list">
+                    <div className="journal-inspo-header" onClick={() => setInspoExpanded(!inspoExpanded)}>
+                      <span>{inspoExpanded ? '▾' : '▸'} Affirmations</span>
+                    </div>
+                    {inspoExpanded && inspoAffirmations.map((a, i) => (
+                      <div key={i} className="journal-inspo-item">"{a}"</div>
+                    ))}
+                  </div>
+                )}
                 <textarea
                   ref={setTextareaRef(key)}
                   value={formData[key]}

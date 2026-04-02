@@ -159,7 +159,7 @@ export function RoutineList({ routines, onIncrement, onDecrement, onDelete, onEd
           <button
             className="routine-week-arrow"
             onClick={onNextDay}
-            disabled={dayOffset >= 1}
+            disabled={dayOffset >= 0}
             aria-label="Next day"
           >
             &gt;

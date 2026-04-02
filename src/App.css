@@ -1815,6 +1815,13 @@ main {
   box-shadow: 0 0 6px rgba(78, 205, 196, 0.4);
 }
 
+.progress-count-over {
+  font-size: 11px;
+  font-weight: 700;
+  color: #4ecdc4;
+  line-height: 1;
+}
+
 .compact-btn {
   width: 20px;
   height: 20px;
@@ -1880,12 +1887,18 @@ main {
 }
 
 .routine-check-btn.checked {
-  background: #d4cec6;
+  background: linear-gradient(135deg, #3a9e8f, #2d8a7c);
   color: #fff;
 }
 
 .routine-check-btn.checked:hover {
-  background: #c4beb6;
+  background: linear-gradient(135deg, #2d8a7c, #247a6e);
+}
+
+.routine-check-count {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 /* Add Routine Button */
@@ -2242,11 +2255,54 @@ main {
 }
 
 .journal-question label {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 0.8rem;
   font-weight: 500;
   color: #5a5650;
   margin-bottom: 6px;
+}
+
+.journal-inspire-btn {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border: 1px solid #e2ddd6;
+  border-radius: 4px;
+  background: none;
+  color: #8a8480;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.journal-inspire-btn:hover {
+  background: #f5f0eb;
+  color: #5a5650;
+}
+
+.journal-inspo-list {
+  background: #faf8f5;
+  border: 1px solid #ebe7e2;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.journal-inspo-header {
+  font-size: 0.75rem;
+  color: #8a8480;
+  cursor: pointer;
+  user-select: none;
+}
+
+.journal-inspo-item {
+  font-size: 0.78rem;
+  color: #5a5650;
+  font-style: italic;
+  line-height: 1.4;
 }
 
 .journal-question textarea {
@@ -6001,6 +6057,48 @@ main {
 
 .monthly-rating-notes-input::placeholder {
   color: #c4b9ad;
+}
+
+.monthly-averages {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid #e2ddd6;
+}
+
+.monthly-average-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 0;
+}
+
+.monthly-average-label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #6b5e50;
+}
+
+.monthly-average-value {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #4a8c5c;
+}
+
+.monthly-normalized-score {
+  font-size: 1.3rem;
+}
+
+.monthly-normalized-unit {
+  font-size: 0.8rem;
+  font-weight: 500;
+  opacity: 0.6;
+}
+
+.monthly-weights-info {
+  font-size: 0.7rem;
+  color: #a09080;
+  margin-top: 8px;
+  line-height: 1.5;
 }
 
 

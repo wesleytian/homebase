@@ -85,13 +85,13 @@ export function RoutineCard({
     else if (e.key === 'Escape') setEditingField(null);
   };
 
-  const handleCheck = () => {
-    // Toggle based on whether completed on the viewed day
-    if (completedToday) {
+  const handleCheck = (e: React.MouseEvent) => {
+    if (e.shiftKey && completedToday) {
+      // Shift+click to decrement
       onDecrement(routine.id);
     } else {
-      // Show confetti when checking off (not unchecking) and if enabled and it's today
-      if (confettiEnabled && !isPastDay && checkBtnRef.current) {
+      // Normal click always adds a completion
+      if (confettiEnabled && !isPastDay && checkBtnRef.current && !completedToday) {
         const rect = checkBtnRef.current.getBoundingClientRect();
         setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });
         setCelebrating(true);
@@ -169,23 +169,31 @@ export function RoutineCard({
           />
         ) : (
           <div className="routine-progress-dots" onClick={() => startEditing('frequency')}>
-            {Array.from({ length: routine.frequencyPerWeek }, (_, i) => (
-              <span
-                key={i}
-                className={`progress-dot ${i < routine.completedThisWeek ? 'filled' : 'empty'}`}
-              />
-            ))}
+            {routine.completedThisWeek > routine.frequencyPerWeek ? (
+              <span className="progress-count-over">{routine.completedThisWeek}</span>
+            ) : (
+              Array.from({ length: routine.frequencyPerWeek }, (_, i) => (
+                <span
+                  key={i}
+                  className={`progress-dot ${i < routine.completedThisWeek ? 'filled' : 'empty'}`}
+                />
+              ))
+            )}
           </div>
         )}
         <button
           ref={checkBtnRef}
           className={`routine-check-btn ${completedToday ? 'checked' : ''} ${celebrating ? 'celebrating' : ''}`}
           onClick={handleCheck}
-          data-tooltip={completedToday ? 'Undo (Shift+click to add extra)' : 'Mark done'}
+          data-tooltip={completedToday ? 'Click to add more, Shift+click to undo' : 'Mark done'}
         >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="20 6 9 17 4 12"></polyline>
-          </svg>
+          {routine.completionsToday > 1 ? (
+            <span className="routine-check-count">{routine.completionsToday}</span>
+          ) : (
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          )}
         </button>
         <button className="compact-btn delete" onClick={() => onDelete(routine.id)}>
           ×

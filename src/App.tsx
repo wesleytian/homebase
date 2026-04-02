@@ -347,7 +347,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     stats: Awaited<ReturnType<typeof getDashboardStats>>,
   ) => {
     const completionCounts = new Map<string, number>();
-    const completedTodaySet = new Set<string>();
+    const completionsTodayCounts = new Map<string, number>();
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -359,18 +359,20 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     for (const c of completions) {
       completionCounts.set(c.routineId, (completionCounts.get(c.routineId) || 0) + 1);
       if (c.completedAt >= todayStart) {
-        completedTodaySet.add(c.routineId);
+        completionsTodayCounts.set(c.routineId, (completionsTodayCounts.get(c.routineId) || 0) + 1);
       }
     }
 
     const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => {
-      const completedToday = completedTodaySet.has(r.id);
+      const completionsToday = completionsTodayCounts.get(r.id) || 0;
+      const completedToday = completionsToday > 0;
       const thisWeekCount = completionCounts.get(r.id) || 0;
       const streakAtRisk = r.currentStreak > 0 && thisWeekCount < r.frequencyPerWeek && (r.streakGraceUsed || r.lastStreakWeek === prevWeekStart);
       return {
         ...r,
         completedThisWeek: completionCounts.get(r.id) || 0,
         completedToday,
+        completionsToday,
         streakAtRisk,
       };
     });
@@ -389,22 +391,28 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     setMonthlyReflections(allMonthlyReflections);
     setDashboardStats(stats);
 
-    // Auto-trigger monthly reflection on first Sunday of the month
+    // Auto-trigger monthly reflection on first Sunday of the month,
+    // or on the last Sunday of the month if it's within a few days of the new month
     const now = new Date();
     const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
-    if (isFirstSunday) {
-      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
-      const existing = allMonthlyReflections.find((r) => r.month === prevMonthStr);
+    const daysUntilNextMonth = Math.ceil((new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const isLastSundayBeforeNewMonth = now.getDay() === 0 && daysUntilNextMonth <= 4;
+    if (isFirstSunday || isLastSundayBeforeNewMonth) {
+      // First Sunday: reflect on previous month. Last Sunday before new month: reflect on current month.
+      const reflectMonth = isFirstSunday
+        ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
+        : new Date(now.getFullYear(), now.getMonth(), 1);
+      const reflectMonthStr = `${reflectMonth.getFullYear()}-${String(reflectMonth.getMonth() + 1).padStart(2, '0')}`;
+      const existing = allMonthlyReflections.find((r) => r.month === reflectMonthStr);
       const isIncomplete = !existing || (!existing.overall && !existing.challenges && !existing.lookingForward && !existing.ratingOverall);
-      const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`);
+      const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${reflectMonthStr}`);
       if (isIncomplete && !dismissed) {
-        setMonthlyReflectionMonth(prevMonthStr);
+        setMonthlyReflectionMonth(reflectMonthStr);
         setCurrentMonthlyReflection(existing || null);
         setShowMonthlyReflection(true);
       }
       if (!monthlyReflectionMonth) {
-        setMonthlyReflectionMonth(prevMonthStr);
+        setMonthlyReflectionMonth(reflectMonthStr);
         setCurrentMonthlyReflection(existing || null);
       }
     }
@@ -566,9 +574,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       const targetWeekStart = getWeekStart(new Date(targetDayStart));
       const weekCompletions = await getCompletionsForWeek(targetWeekStart);
 
-      const dayCompletionSet = new Set<string>();
+      const dayCompletionCounts = new Map<string, number>();
       for (const c of dayCompletions) {
-        dayCompletionSet.add(c.routineId);
+        dayCompletionCounts.set(c.routineId, (dayCompletionCounts.get(c.routineId) || 0) + 1);
       }
 
       // Only count completions up to and including the viewed day
@@ -585,12 +593,13 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
       const routinesWithProgress: RoutineWithProgress[] = allRoutines.map((r) => {
         const thisWeekCount = weekCompletionCounts.get(r.id) || 0;
-        const completedOnDay = dayCompletionSet.has(r.id);
+        const completionsOnDay = dayCompletionCounts.get(r.id) || 0;
         const streakAtRisk = dayOffset === 0 && r.currentStreak > 0 && thisWeekCount < r.frequencyPerWeek && (r.streakGraceUsed || r.lastStreakWeek === prevWeekStart);
         return {
           ...r,
           completedThisWeek: thisWeekCount,
-          completedToday: completedOnDay, // Now represents "completed on the viewed day"
+          completedToday: completionsOnDay > 0,
+          completionsToday: completionsOnDay,
           streakAtRisk,
         };
       });
@@ -678,7 +687,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ? {
               ...r,
               completedThisWeek: newCompletedThisWeek,
-              completedToday: true, // Mark as completed for the viewed day
+              completedToday: true,
+              completionsToday: r.completionsToday + 1,
               currentStreak: newStreak,
               longestStreak: newLongest,
               lastStreakWeek: newLastStreakWeek,
@@ -701,6 +711,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                   ...r,
                   completedThisWeek: routine.completedThisWeek,
                   completedToday: routine.completedToday,
+                  completionsToday: routine.completionsToday,
                   currentStreak: routine.currentStreak,
                   longestStreak: routine.longestStreak,
                   lastStreakWeek: routine.lastStreakWeek,
@@ -720,6 +731,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                   ...r,
                   completedThisWeek: newCompletedThisWeek,
                   completedToday: true,
+                  completionsToday: routine.completionsToday + 1,
                   currentStreak: newStreak,
                   longestStreak: newLongest,
                   lastStreakWeek: newLastStreakWeek,
@@ -749,6 +761,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
     const targetDayStart = getDayStartForOffset(routineDayOffset);
     const targetWeekStart = getWeekStart(new Date(targetDayStart));
+    const newCompletionsToday = Math.max(0, routine.completionsToday - 1);
 
     // Optimistic update - update state immediately
     setRoutines((prev) =>
@@ -757,7 +770,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           ? {
               ...r,
               completedThisWeek: Math.max(0, r.completedThisWeek - 1),
-              completedToday: false, // Mark as not completed for the viewed day
+              completedToday: newCompletionsToday > 0,
+              completionsToday: newCompletionsToday,
             }
           : r
       )
@@ -776,6 +790,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                   ...r,
                   completedThisWeek: routine.completedThisWeek,
                   completedToday: routine.completedToday,
+                  completionsToday: routine.completionsToday,
                 }
               : r
           )
@@ -790,7 +805,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
               ? {
                   ...r,
                   completedThisWeek: Math.max(0, r.completedThisWeek - 1),
-                  completedToday: false,
+                  completedToday: newCompletionsToday > 0,
+                  completionsToday: newCompletionsToday,
                 }
               : r
           )
@@ -827,6 +843,14 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   };
 
   // Todo handlers
+  // Resolve a section ID - if it's a temp ID, wait for the real one
+  const resolveRealSectionId = async (sectionId: string | null): Promise<string | null> => {
+    if (!sectionId || !sectionId.startsWith('temp-')) return sectionId;
+    const resolver = sectionIdResolvers.current.get(sectionId);
+    if (resolver) return resolver;
+    return sectionId;
+  };
+
   const handleAddTodo = async (text: string, sectionId: string | null) => {
     // Generate a temporary ID for optimistic update
     const tempId = crypto.randomUUID();
@@ -863,8 +887,15 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       },
     });
 
+    // Resolve temp section ID to real DB ID before saving
+    const realSectionId = await resolveRealSectionId(sectionId);
+    // Update local state if section ID changed
+    if (realSectionId !== sectionId) {
+      setTodos((prev) => prev.map((t) => t.id === tempId ? { ...t, sectionId: realSectionId } : t));
+    }
+
     // Sync to DB in background
-    addTodo(text, sectionId).then((dbTodo) => {
+    addTodo(text, realSectionId).then((dbTodo) => {
       realId = dbTodo.id; // Update for undo
       // Replace temp todo with real todo, preserving any local changes
       setTodos((current) => {
@@ -931,8 +962,11 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       }
     }, 0);
 
+    // Resolve temp section ID to real DB ID before saving
+    const realSectionId = await resolveRealSectionId(afterTodo.sectionId);
+
     // Sync to DB in background
-    addTodo(text, afterTodo.sectionId, indent).then(async (dbTodo) => {
+    addTodo(text, realSectionId, indent).then(async (dbTodo) => {
       realId = dbTodo.id;
       // Check if the temp input is currently focused and get its ACTUAL value
       // (not from React state, which may be stale due to debounced saves)
@@ -1021,7 +1055,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       }
     }, 0);
 
-    addTodo(text, beforeTodo.sectionId, indent).then(async (dbTodo) => {
+    // Resolve temp section ID to real DB ID before saving
+    const realSectionId = await resolveRealSectionId(beforeTodo.sectionId);
+
+    addTodo(text, realSectionId, indent).then(async (dbTodo) => {
       realId = dbTodo.id;
       const tempInput = document.querySelector(`[data-drag-id="${tempId}"] .todo-text-input`) as HTMLInputElement;
       const wasFocused = document.activeElement === tempInput;
@@ -1244,6 +1281,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const addingSectionsRef = useRef<Set<string>>(new Set());
   // Track todo moves that are waiting for a temp section ID to resolve to a real one
   const pendingSectionResolves = useRef<Map<string, string[]>>(new Map());
+  // Map temp section IDs to promises that resolve with the real DB ID
+  const sectionIdResolvers = useRef<Map<string, Promise<string>>>(new Map());
 
   const handleAddSection = async (name: string, parentId?: string | null) => {
     trackEvent('action', { action: 'section_created', name }); trackFeatureUsed('todos');
@@ -1284,7 +1323,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     });
 
     // Sync to DB in background and update with real ID
-    addSection(name, parentId).then(realSection => {
+    const sectionPromise = addSection(name, parentId).then(realSection => {
       setSections(prev => prev.map(s => s.id === tempId ? realSection : s));
       // Flush any pending todo moves that were waiting for this section's real ID
       const pendingTodoIds = pendingSectionResolves.current.get(tempId);
@@ -1299,13 +1338,16 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           updateTodoSection(todoId, realSection.id).catch(onTodoError);
         }
       }
+      return realSection.id;
     }).catch(err => {
       // Remove optimistic section on error
       setSections(prev => prev.filter(s => s.id !== tempId));
       console.error('Failed to add section:', err);
+      throw err;
     }).finally(() => {
       addingSectionsRef.current.delete(uniqueKey);
     });
+    sectionIdResolvers.current.set(tempId, sectionPromise);
   };
 
   // Convert a todo into an inline toggle (stays in place, can collapse children)
@@ -1396,7 +1438,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     await withSaveStatus(() => reorderSections(sectionsWithUpdatedOrder));
   };
 
-  const handleMoveToToday = async (sourceSectionId: string) => {
+  const handleMoveToToday = (sourceSectionId: string) => {
     // Get today's formatted date
     const days = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
     const now = new Date();
@@ -1406,14 +1448,40 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const todayFormatted = `${dayName}, ${month}/${date}`;
 
     // Find or create today's section
-    let todaySection = sections.find((s) => s.name === todayFormatted);
-    let needsNewSection = !todaySection;
+    let todaySectionId: string;
+    const existingSection = sections.find((s) => s.name === todayFormatted);
 
-    if (needsNewSection) {
-      // Create section in DB first since we need the real ID
-      todaySection = await addSection(todayFormatted);
-      // Add to state at the top
-      setSections((prev) => [todaySection!, ...prev]);
+    if (existingSection) {
+      todaySectionId = existingSection.id;
+    } else {
+      // Optimistic: create section with temp ID immediately
+      const tempId = `temp-${Date.now()}`;
+      todaySectionId = tempId;
+      setSections((prev) => [{
+        id: tempId,
+        name: todayFormatted,
+        collapsed: false,
+        order: 0,
+        createdAt: Date.now(),
+        parentId: null,
+      }, ...prev]);
+
+      // Create in DB and resolve temp ID
+      addSection(todayFormatted).then((realSection) => {
+        setSections((prev) => prev.map((s) => s.id === tempId ? realSection : s));
+        // Update any todos that were assigned the temp section ID
+        setTodos((prev) => prev.map((t) =>
+          t.sectionId === tempId ? { ...t, sectionId: realSection.id } : t
+        ));
+        // Sync the moved todos with real section ID
+        setTodos((prev) => {
+          const movedTodos = prev.filter((t) => t.sectionId === realSection.id);
+          for (const todo of movedTodos) {
+            updateTodoSection(todo.id, realSection.id).catch(onTodoError);
+          }
+          return prev;
+        });
+      }).catch(onSectionError);
     }
 
     // Get todos in source section (in order)
@@ -1443,19 +1511,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       }
     }
 
-    const todosToMove = sectionTodos
-      .filter((t) => idsToMove.has(t.id))
-      .map((t) => ({ ...t, sectionId: todaySection!.id }));
-
     // Optimistic update - move todos and collapse source section immediately
-    setTodos((prev) => {
-      return prev.map((t) => {
-        if (idsToMove.has(t.id)) {
-          return { ...t, sectionId: todaySection!.id };
-        }
-        return t;
-      });
-    });
+    setTodos((prev) => prev.map((t) =>
+      idsToMove.has(t.id) ? { ...t, sectionId: todaySectionId } : t
+    ));
 
     setSections((prev) =>
       prev.map((s) =>
@@ -1463,14 +1522,25 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       )
     );
 
-    // Sync to DB in background (batch the updates)
-    Promise.all([
-      ...todosToMove.map((todo) => updateTodo(todo)),
-      updateSection({
-        ...sections.find((s) => s.id === sourceSectionId)!,
-        collapsed: true,
-      }),
-    ]).catch(onSectionError);
+    // Sync to DB in background (only if section already exists - temp sections sync after resolve)
+    if (existingSection) {
+      const todosToSync = sectionTodos
+        .filter((t) => idsToMove.has(t.id))
+        .map((t) => ({ ...t, sectionId: todaySectionId }));
+      Promise.all([
+        ...todosToSync.map((todo) => updateTodo(todo)),
+        updateSection({
+          ...sections.find((s) => s.id === sourceSectionId)!,
+          collapsed: true,
+        }),
+      ]).catch(onSectionError);
+    } else {
+      // Collapse the source section in DB
+      const sourceSection = sections.find((s) => s.id === sourceSectionId);
+      if (sourceSection) {
+        updateSection({ ...sourceSection, collapsed: true }).catch(onSectionError);
+      }
+    }
   };
 
 
@@ -1759,8 +1829,12 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           onBack={() => { setCurrentPage('dashboard'); }}
           onOpenMonthlyReflection={() => {
             const now = new Date();
-            const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-            const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
+            // Open current month if past the 15th, otherwise previous month
+            const useCurrentMonth = now.getDate() >= 15;
+            const targetMonth = useCurrentMonth
+              ? new Date(now.getFullYear(), now.getMonth(), 1)
+              : new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const prevMonthStr = `${targetMonth.getFullYear()}-${String(targetMonth.getMonth() + 1).padStart(2, '0')}`;
             setMonthlyReflectionMonth(prevMonthStr);
             const r = monthlyReflections.find((r) => r.month === prevMonthStr);
             setCurrentMonthlyReflection(r || null);
@@ -1770,6 +1844,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         {showMonthlyReflection && (
         <MonthlyReflectionModal
           reflection={currentMonthlyReflection}
+          allReflections={monthlyReflections}
           month={monthlyReflectionMonth}
           onSave={handleSaveMonthlyReflection}
           onClose={() => {
@@ -1970,9 +2045,17 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
   const monthlyReflectionBanner = (() => {
     const now = new Date();
-    const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const prevMonthStr = `${prevMonth.getFullYear()}-${String(prevMonth.getMonth() + 1).padStart(2, '0')}`;
-    const existing = monthlyReflections.find((r) => r.month === prevMonthStr);
+    const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
+    const daysUntilNextMonth = Math.ceil((new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const isLastSundayBeforeNewMonth = now.getDay() === 0 && daysUntilNextMonth <= 4;
+    const isReflectionSunday = isFirstSunday || isLastSundayBeforeNewMonth;
+
+    // First Sunday: reflect on previous month. Last Sunday before new month: reflect on current month.
+    const reflectMonth = isFirstSunday
+      ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      : new Date(now.getFullYear(), now.getMonth(), 1);
+    const reflectMonthStr = `${reflectMonth.getFullYear()}-${String(reflectMonth.getMonth() + 1).padStart(2, '0')}`;
+    const existing = monthlyReflections.find((r) => r.month === reflectMonthStr);
     const isComplete = existing
       && existing.overall && existing.challenges && existing.lookingForward
       && existing.ratingOverall && existing.ratingHealth && existing.ratingCareer
@@ -1980,24 +2063,23 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       && existing.ratingRomance && existing.ratingFun && existing.ratingGrowth
       && existing.ratingMentalHealth && existing.ratingSpirituality
       && existing.ratingEnvironment && existing.ratingProductivity;
-    const monthName = prevMonth.toLocaleDateString('en-US', { month: 'long' });
-    const isFirstSunday = now.getDay() === 0 && now.getDate() <= 7;
-    if (isComplete || reflectionDismissed || localStorage.getItem(`monthlyReflectionDismissed-${prevMonthStr}`)) return null;
+    const monthName = reflectMonth.toLocaleDateString('en-US', { month: 'long' });
+    if (isComplete || reflectionDismissed || localStorage.getItem(`monthlyReflectionDismissed-${reflectMonthStr}`)) return null;
     return (
-      <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isFirstSunday && !isComplete ? 'urgent' : ''}`}>
+      <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isReflectionSunday && !isComplete ? 'urgent' : ''}`}>
         <span className="monthly-reflection-banner-text">
           {isComplete ? `${monthName} reflection` : `Monthly reflection for ${monthName}`}
           {isComplete && <span className="monthly-reflection-check"> ✓</span>}
         </span>
         <div className="monthly-reflection-banner-actions">
           <button onClick={() => {
-            setMonthlyReflectionMonth(prevMonthStr);
-            const r = monthlyReflections.find((r) => r.month === prevMonthStr);
+            setMonthlyReflectionMonth(reflectMonthStr);
+            const r = monthlyReflections.find((r) => r.month === reflectMonthStr);
             setCurrentMonthlyReflection(r || null);
             setShowMonthlyReflection(true);
           }}>{isComplete ? 'Review' : 'Open'}</button>
           <button className="monthly-reflection-dismiss" onClick={() => {
-            localStorage.setItem(`monthlyReflectionDismissed-${prevMonthStr}`, 'true');
+            localStorage.setItem(`monthlyReflectionDismissed-${reflectMonthStr}`, 'true');
             setReflectionDismissed(true);
           }}>Dismiss</button>
         </div>
@@ -2008,7 +2090,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const modals = (
     <>
       {showMonthlyReflection && (
-        <MonthlyReflectionModal reflection={currentMonthlyReflection} month={monthlyReflectionMonth}
+        <MonthlyReflectionModal reflection={currentMonthlyReflection} allReflections={monthlyReflections} month={monthlyReflectionMonth}
           onSave={handleSaveMonthlyReflection} onClose={() => { setShowMonthlyReflection(false); if (monthlyReflectionMonth) localStorage.setItem(`monthlyReflectionDismissed-${monthlyReflectionMonth}`, 'true'); }}
           onChangeMonth={handleChangeReflectionMonth} />
       )}

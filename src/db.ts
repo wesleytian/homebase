@@ -1103,6 +1103,7 @@ export async function createOrUpdateMonthlyReflection(reflection: Partial<Monthl
         notes_spirituality: reflection.notesSpirituality ?? existing.notesSpirituality,
         notes_environment: reflection.notesEnvironment ?? existing.notesEnvironment,
         notes_productivity: reflection.notesProductivity ?? existing.notesProductivity,
+        overall_life: reflection.overallLife ?? existing.overallLife,
         updated_at: Date.now(),
       })
       .eq('id', existing.id)
@@ -1144,6 +1145,7 @@ export async function createOrUpdateMonthlyReflection(reflection: Partial<Monthl
         notes_spirituality: reflection.notesSpirituality || '',
         notes_environment: reflection.notesEnvironment || '',
         notes_productivity: reflection.notesProductivity || '',
+        overall_life: reflection.overallLife || '',
         created_at: Date.now(),
         updated_at: Date.now(),
         user_id: userId,

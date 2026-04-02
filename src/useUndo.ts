@@ -65,11 +65,12 @@ export function useUndo() {
   // Listen for Cmd+Z / Ctrl+Z
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      // Always let browser handle undo/redo when focus is in an input or textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+        return;
+      }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && e.shiftKey) {
-        const target = e.target as HTMLInputElement | HTMLTextAreaElement;
-        if ((target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && target.value) {
-          return;
-        }
         e.preventDefault();
         const description = redo();
         if (description) {
@@ -78,12 +79,6 @@ export function useUndo() {
         return;
       }
       if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-        const target = e.target as HTMLInputElement | HTMLTextAreaElement;
-
-        // If in an input/textarea with content, let browser handle native undo
-        if ((target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') && target.value) {
-          return;
-        }
 
         // Otherwise, use our undo system
         e.preventDefault();

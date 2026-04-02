@@ -28,6 +28,8 @@ interface UseTouchDragOptions<T> {
   getItemId: (item: T) => string;
   targetSelector: string;
   onReorder: (items: T[]) => void;
+  getItemSectionId?: (item: T) => string | null;
+  onMoveToSection?: (itemId: string, newSectionId: string | null) => void;
   onDragStateChange?: (draggedId: string | null, targetId: string | null, position: DropPosition) => void;
 }
 
@@ -38,7 +40,7 @@ function triggerHaptic() {
   }
 }
 
-export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, onDragStateChange }: UseTouchDragOptions<T>) {
+export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, getItemSectionId, onMoveToSection, onDragStateChange }: UseTouchDragOptions<T>) {
   const stateRef = useRef<TouchDragState>({
     isDragging: false,
     draggedId: null,
@@ -281,6 +283,15 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, o
       const targetIndex = items.findIndex(item => getItemId(item) === targetId);
 
       if (draggedIndex !== -1 && targetIndex !== -1) {
+        // Check if moving between sections
+        if (getItemSectionId && onMoveToSection) {
+          const draggedSectionId = getItemSectionId(items[draggedIndex]);
+          const targetSectionId = getItemSectionId(items[targetIndex]);
+          if (draggedSectionId !== targetSectionId) {
+            onMoveToSection(draggedId, targetSectionId);
+          }
+        }
+
         const newItems = [...items];
         const [dragged] = newItems.splice(draggedIndex, 1);
 

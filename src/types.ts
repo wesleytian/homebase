@@ -22,6 +22,7 @@ export interface Completion {
 export interface RoutineWithProgress extends Routine {
   completedThisWeek: number;
   completedToday: boolean;
+  completionsToday: number;
   streakAtRisk: boolean; // true if using grace period (missed last week but streak preserved)
 }
 
@@ -107,6 +108,7 @@ export interface MonthlyReflection {
   notesSpirituality: string;
   notesEnvironment: string;
   notesProductivity: string;
+  overallLife: string;
   createdAt: number;
   updatedAt: number;
 }
