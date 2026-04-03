@@ -2064,6 +2064,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       && existing.ratingMentalHealth && existing.ratingSpirituality
       && existing.ratingEnvironment && existing.ratingProductivity;
     const monthName = reflectMonth.toLocaleDateString('en-US', { month: 'long' });
+    // Only show banner during last week of month or first week of next month
+    const isLastWeekOfMonth = daysUntilNextMonth <= 7;
+    const isFirstWeekOfMonth = now.getDate() <= 7;
+    if (!isLastWeekOfMonth && !isFirstWeekOfMonth) return null;
     if (isComplete || reflectionDismissed || localStorage.getItem(`monthlyReflectionDismissed-${reflectMonthStr}`)) return null;
     return (
       <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isReflectionSunday && !isComplete ? 'urgent' : ''}`}>
