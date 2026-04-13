@@ -86,11 +86,15 @@ export function RoutineCard({
   };
 
   const handleCheck = (e: React.MouseEvent) => {
+    const isDaily = routine.frequencyPerWeek === 7;
     if (e.shiftKey && completedToday) {
       // Shift+click to decrement
       onDecrement(routine.id);
+    } else if (isDaily && completedToday) {
+      // Daily routines toggle off when already completed today
+      onDecrement(routine.id);
     } else {
-      // Normal click always adds a completion
+      // Normal click adds a completion
       if (confettiEnabled && !isPastDay && checkBtnRef.current && !completedToday) {
         const rect = checkBtnRef.current.getBoundingClientRect();
         setShowConfetti({ x: rect.left + rect.width / 2, y: rect.top });

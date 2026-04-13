@@ -112,33 +112,38 @@ export function TodoItem({
     };
   }, []);
 
-  // Convert ~~text~~ to <s>text</s> for contentEditable
+  // Convert ~~text~~ to <s>text</s> and **text** to <b>text</b> for contentEditable
   const textToHtml = (text: string) => {
-    return text.replace(/~~([^~]+)~~/g, '<s>$1</s>');
+    return text
+      .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+      .replace(/~~([^~]+)~~/g, '<s>$1</s>');
   };
 
-  // Convert <s>text</s> back to ~~text~~ from contentEditable (recursive)
+  // Convert HTML back to markdown markup from contentEditable (recursive)
   const htmlToText = (html: string) => {
     const div = document.createElement('div');
     div.innerHTML = html;
-    const walk = (node: Node, inStrike: boolean): string => {
+    const walk = (node: Node, inStrike: boolean, inBold: boolean): string => {
       if (node.nodeType === Node.TEXT_NODE) {
         return node.textContent || '';
       }
       const isStrike = node.nodeName === 'S' || node.nodeName === 'STRIKE';
-      const nowInStrike = inStrike || isStrike;
+      const isBoldTag = node.nodeName === 'B' || node.nodeName === 'STRONG';
       let inner = '';
       node.childNodes.forEach(child => {
-        inner += walk(child, nowInStrike);
+        inner += walk(child, inStrike || isStrike, inBold || isBoldTag);
       });
       if (isStrike && !inStrike) {
         return '~~' + inner + '~~';
+      }
+      if (isBoldTag && !inBold) {
+        return '**' + inner + '**';
       }
       return inner;
     };
     let result = '';
     div.childNodes.forEach(node => {
-      result += walk(node, false);
+      result += walk(node, false, false);
     });
     return result;
   };
@@ -158,7 +163,7 @@ export function TodoItem({
   // Sync localText to contentEditable when not focused (and on mount)
   const editableMountedRef = useRef(false);
   useEffect(() => {
-    if (editableRef.current && localText.includes('~~')) {
+    if (editableRef.current && (localText.includes('~~') || localText.includes('**'))) {
       if (!isFocused || !editableMountedRef.current) {
         editableRef.current.innerHTML = textToHtml(localText);
         editableMountedRef.current = true;
@@ -263,6 +268,44 @@ export function TodoItem({
     } else if (e.key === 'Escape') {
       setLocalText(todo.text);
       inputRef.current?.blur();
+    } else if (e.key === 'b' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+      // Cmd/Ctrl+B: toggle bold on selected text
+      e.preventDefault();
+      const textarea = inputRef.current;
+      if (!textarea) return;
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      if (start === end) return; // No selection
+
+      const before = localText.slice(0, start);
+      const selected = localText.slice(start, end);
+      const after = localText.slice(end);
+
+      let newText: string;
+      let newStart: number;
+      let newEnd: number;
+
+      // Toggle: if already wrapped with **, remove them; otherwise add them
+      if (selected.startsWith('**') && selected.endsWith('**') && selected.length > 4) {
+        const unwrapped = selected.slice(2, -2);
+        newText = before + unwrapped + after;
+        newStart = start;
+        newEnd = end - 4;
+      } else if (before.endsWith('**') && after.startsWith('**')) {
+        newText = before.slice(0, -2) + selected + after.slice(2);
+        newStart = start - 2;
+        newEnd = end - 2;
+      } else {
+        newText = before + '**' + selected + '**' + after;
+        newStart = start;
+        newEnd = end + 4;
+      }
+
+      setLocalText(newText);
+      debouncedSave(newText);
+      setTimeout(() => {
+        textarea.setSelectionRange(newStart, newEnd);
+      }, 0);
     } else if (e.key === 'x' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
       // Cmd/Ctrl+Shift+X: toggle strikethrough on selected text
       e.preventDefault();
@@ -442,7 +485,7 @@ export function TodoItem({
           )}
         </>
       )}
-      {localText.includes('~~') ? (
+      {(localText.includes('~~') || localText.includes('**')) ? (
         <div
           ref={editableRef}
           className={`todo-editable ${todo.completed ? 'completed' : ''}`}
@@ -543,6 +586,11 @@ export function TodoItem({
               setLocalText(todo.text);
               e.currentTarget.innerHTML = textToHtml(todo.text);
               e.currentTarget.blur();
+            } else if (e.key === 'b' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+              e.preventDefault();
+              const sel = window.getSelection();
+              if (!sel || sel.isCollapsed) return;
+              document.execCommand('bold');
             } else if (e.key === 'x' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
               e.preventDefault();
               const sel = window.getSelection();

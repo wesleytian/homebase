@@ -836,6 +836,10 @@ main {
   color: #a39b91;
 }
 
+.todo-editable b {
+  font-weight: 700;
+}
+
 .todo-text-input::selection {
   background: #f5a623;
   color: white;
