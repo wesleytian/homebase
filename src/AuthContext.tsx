@@ -10,6 +10,8 @@ interface AuthContextType {
   signOut: () => Promise<void>;
 }
 
+const ALLOWED_EMAIL = 'you@example.com';
+
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
@@ -40,6 +42,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Listen for auth changes first so we don't miss events
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       const u = session?.user ?? null;
+      if (u && u.email !== ALLOWED_EMAIL) {
+        supabase.auth.signOut();
+        setUser(null);
+        setCurrentUserId(null);
+        setLoading(false);
+        alert('Access restricted.');
+        return;
+      }
       setUser(u);
       setCurrentUserId(u?.id ?? null);
       setLoading(false);
