@@ -10,7 +10,7 @@ interface Props {
   onDelete: (id: string) => void;
   onEdit: (id: string, text: string, isBullet?: boolean) => void;
   onIndent: (id: string, indent: number) => void;
-  onCreateBelow?: (id: string, indent: number) => void;
+  onCreateBelow?: (id: string, indent: number, initialText?: string) => void;
   onCreateAbove?: (id: string, indent: number) => void;
   onDeleteAndFocusAbove?: (id: string) => void;
   onFocusPrev?: (cursorPos: number) => void;
@@ -78,7 +78,42 @@ export function TodoItem({
   const checkboxRef = useRef<HTMLLabelElement>(null);
   const saveTimeoutRef = useRef<number | null>(null);
   const hasUnsavedChangesRef = useRef(false);
+  const swipeRef = useRef<{ startX: number; startY: number; triggered: boolean } | null>(null);
   const indent = todo.indent ?? 0;
+  const isTouchDevice = typeof window !== 'undefined' && window.matchMedia('(hover: none)').matches;
+
+  const handleTouchStartWrapped = (e: React.TouchEvent) => {
+    const touch = e.touches[0];
+    swipeRef.current = { startX: touch.clientX, startY: touch.clientY, triggered: false };
+    onTouchStart?.(e, todo.id);
+  };
+
+  const handleTouchMoveWrapped = (e: React.TouchEvent) => {
+    const swipe = swipeRef.current;
+    if (swipe && !swipe.triggered) {
+      const touch = e.touches[0];
+      const dx = touch.clientX - swipe.startX;
+      const dy = touch.clientY - swipe.startY;
+      const SWIPE_THRESHOLD = 50;
+      if (Math.abs(dx) > SWIPE_THRESHOLD && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx > 0 && canIndent && indent < 3) {
+          onIndent(todo.id, indent + 1);
+          if (navigator.vibrate) navigator.vibrate(20);
+          swipe.triggered = true;
+        } else if (dx < 0 && indent > 0) {
+          onIndent(todo.id, indent - 1);
+          if (navigator.vibrate) navigator.vibrate(20);
+          swipe.triggered = true;
+        }
+      }
+    }
+    onTouchMove?.(e);
+  };
+
+  const handleTouchEndWrapped = () => {
+    swipeRef.current = null;
+    onTouchEnd?.();
+  };
 
   // Only sync from props if we don't have unsaved local changes
   // This prevents ANY external update from overwriting user's typing
@@ -244,19 +279,30 @@ export function TodoItem({
         return;
       }
 
-      // Save current text first
-      const trimmed = localText.trim();
-      if (trimmed !== todo.text) {
-        onEdit(todo.id, trimmed);
+      // Split text at cursor: before stays in this todo, after goes to new todo below
+      const cursor = inputRef.current?.selectionStart ?? localText.length;
+      const before = localText.slice(0, cursor);
+      const after = localText.slice(cursor);
+
+      // If cursor is at the start of non-empty todo, keep current text and create new todo above
+      if (cursor === 0 && localText.length > 0 && onCreateAbove) {
+        const trimmed = localText.trim();
+        if (trimmed !== todo.text) onEdit(todo.id, trimmed);
+        hasUnsavedChangesRef.current = false;
+        onCreateAbove(todo.id, indent);
+        return;
+      }
+
+      // Save the "before" text as the current todo's text
+      const trimmedBefore = before.trim();
+      if (trimmedBefore !== todo.text) {
+        setLocalText(trimmedBefore);
+        onEdit(todo.id, trimmedBefore);
       }
       hasUnsavedChangesRef.current = false;
-      // If cursor is at the start of non-empty todo, create new todo above; otherwise below
-      const cursorAtStart = inputRef.current?.selectionStart === 0 && inputRef.current?.selectionEnd === 0;
-      const hasText = localText.length > 0;
-      if (cursorAtStart && hasText && onCreateAbove) {
-        onCreateAbove(todo.id, indent);
-      } else if (onCreateBelow) {
-        onCreateBelow(todo.id, indent);
+
+      if (onCreateBelow) {
+        onCreateBelow(todo.id, indent, after);
       }
     } else if (e.key === 'Backspace' && localText === '') {
       e.preventDefault();
@@ -416,7 +462,7 @@ export function TodoItem({
         '--drop-indent-offset': dropIndent !== null ? `${(dropIndent - indent) * 24}px` : '0px'
       } as React.CSSProperties}
       data-drag-id={todo.id}
-      draggable={!isFocused}
+      draggable={!isFocused && !isTouchDevice}
       onDragStart={(e) => onDragStart(e, todo.id)}
       onDragOver={(e) => onDragOver(e, todo.id)}
       onDragLeave={onDragLeave}
@@ -435,9 +481,9 @@ export function TodoItem({
           inputRef.current?.focus();
         }
       }}
-      onTouchStart={onTouchStart ? (e) => onTouchStart(e, todo.id) : undefined}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
+      onTouchStart={handleTouchStartWrapped}
+      onTouchMove={handleTouchMoveWrapped}
+      onTouchEnd={handleTouchEndWrapped}
     >
       {!isEmptyLine && (
         <>
@@ -559,28 +605,84 @@ export function TodoItem({
                 clearTimeout(saveTimeoutRef.current);
                 saveTimeoutRef.current = null;
               }
-              const newText = htmlToText(e.currentTarget.innerHTML).trim();
+              const editable = e.currentTarget;
+              const newText = htmlToText(editable.innerHTML).trim();
 
               // If empty, convert to empty line (no checkbox) and don't create new todo
               if (newText === '') {
                 onEdit(todo.id, '');
                 hasUnsavedChangesRef.current = false;
-                e.currentTarget.blur();
+                editable.blur();
                 return;
               }
 
-              if (newText !== todo.text) {
-                onEdit(todo.id, newText);
+              // Split the DOM at the cursor so each half keeps its bold/strikethrough wrapping.
+              const sel = window.getSelection();
+              let before = newText;
+              let after = '';
+              let cursorPlain = newText.length;
+              if (sel && sel.rangeCount > 0) {
+                const range = sel.getRangeAt(0);
+
+                // Cursor position in *plain text* (no markdown) for the start-of-text check
+                const preRange = document.createRange();
+                preRange.selectNodeContents(editable);
+                preRange.setEnd(range.startContainer, range.startOffset);
+                cursorPlain = preRange.toString().length;
+
+                // Clone HTML fragments for before/after using cloneContents so partial
+                // selections inside <b>/<s> get the tags re-applied to each half.
+                const beforePlain = preRange.toString();
+                if (beforePlain.length === 0) {
+                  before = '';
+                } else {
+                  const beforeFrag = preRange.cloneContents();
+                  const beforeWrap = document.createElement('div');
+                  beforeWrap.appendChild(beforeFrag);
+                  before = htmlToText(beforeWrap.innerHTML);
+                }
+
+                const afterRange = document.createRange();
+                afterRange.setStart(range.startContainer, range.startOffset);
+                afterRange.setEndAfter(editable.lastChild || editable);
+                const afterPlain = afterRange.toString();
+                if (afterPlain.length === 0) {
+                  after = '';
+                } else {
+                  const afterFrag = afterRange.cloneContents();
+                  const afterWrap = document.createElement('div');
+                  afterWrap.appendChild(afterFrag);
+                  after = htmlToText(afterWrap.innerHTML);
+                }
+              }
+
+              // Cursor at start of non-empty: keep text, create new above
+              if (cursorPlain === 0 && newText.length > 0 && onCreateAbove) {
+                if (newText !== todo.text) onEdit(todo.id, newText);
+                hasUnsavedChangesRef.current = false;
+                onCreateAbove(todo.id, indent);
+                return;
+              }
+
+              const trimmedBefore = before.trim();
+              if (trimmedBefore !== todo.text) {
+                onEdit(todo.id, trimmedBefore);
+                editable.innerHTML = textToHtml(trimmedBefore);
+                setLocalText(trimmedBefore);
               }
               hasUnsavedChangesRef.current = false;
-              // Check if cursor is at start of non-empty todo
-              const sel = window.getSelection();
-              const cursorAtStart = sel && sel.anchorOffset === 0 && sel.focusOffset === 0 && sel.anchorNode === e.currentTarget.firstChild;
-              const hasText = newText.length > 0;
-              if (cursorAtStart && hasText && onCreateAbove) {
-                onCreateAbove(todo.id, indent);
-              } else if (onCreateBelow) {
-                onCreateBelow(todo.id, indent);
+
+              if (onCreateBelow) {
+                onCreateBelow(todo.id, indent, after);
+              }
+            } else if (e.key === 'Backspace') {
+              // If visible text is empty (or only empty markdown wrappers), delete the todo
+              // and focus the end of the previous one.
+              const plain = (e.currentTarget.textContent || '').replace(/​/g, '');
+              if (plain === '') {
+                e.preventDefault();
+                if (onDeleteAndFocusAbove) onDeleteAndFocusAbove(todo.id);
+                else onDelete(todo.id);
               }
             } else if (e.key === 'Escape') {
               setLocalText(todo.text);

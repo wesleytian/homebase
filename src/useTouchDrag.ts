@@ -4,6 +4,7 @@ export type DropPosition = 'above' | 'below' | null;
 
 const LONG_PRESS_DURATION = 400; // ms before drag starts
 const LONG_PRESS_MOVE_THRESHOLD = 10; // px - cancel if moved more than this
+const PENDING_VISUAL_DELAY = 150; // ms before showing pending highlight (avoids flash on quick taps/scrolls)
 
 interface TouchDragState {
   isDragging: boolean;
@@ -20,6 +21,7 @@ interface TouchDragState {
   longPressTimer: number | null;
   pendingDragId: string | null;
   pendingElement: HTMLElement | null;
+  pendingVisualTimer: number | null;
   documentTouchMoveHandler: ((e: TouchEvent) => void) | null;
 }
 
@@ -56,6 +58,7 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, g
     longPressTimer: null,
     pendingDragId: null,
     pendingElement: null,
+    pendingVisualTimer: null,
     documentTouchMoveHandler: null,
   });
 
@@ -64,6 +67,10 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, g
     if (state.longPressTimer) {
       clearTimeout(state.longPressTimer);
       state.longPressTimer = null;
+    }
+    if (state.pendingVisualTimer) {
+      clearTimeout(state.pendingVisualTimer);
+      state.pendingVisualTimer = null;
     }
     if (state.preview) {
       state.preview.remove();
@@ -150,23 +157,22 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, g
     state.pendingDragId = id;
     state.pendingElement = element;
 
-    // Check if touch started on drag handle - if so, start immediately
+    // Drag is only initiated from the drag handle (avoids accidental drags
+    // when the user is just trying to scroll the page).
     const handle = element.querySelector('.drag-handle, .routine-drag-handle, .goal-drag-handle, .section-drag-handle, .friend-drag-handle, .subtask-drag-handle');
-    if (handle) {
-      const handleRect = handle.getBoundingClientRect();
-      const touchX = touch.clientX;
-      const touchY = touch.clientY;
-      const isOnHandle = touchX >= handleRect.left - 20 && touchX <= handleRect.right + 20 &&
-                         touchY >= handleRect.top - 10 && touchY <= handleRect.bottom + 10;
-      if (isOnHandle) {
-        // Start dragging immediately when touching handle
-        startDragging(element, id, touch.clientX, touch.clientY);
-        return;
-      }
-    }
+    if (!handle) return;
+    const handleRect = handle.getBoundingClientRect();
+    const touchX = touch.clientX;
+    const touchY = touch.clientY;
+    const isOnHandle = touchX >= handleRect.left - 20 && touchX <= handleRect.right + 20 &&
+                       touchY >= handleRect.top - 10 && touchY <= handleRect.bottom + 10;
+    if (!isOnHandle) return;
 
-    // Otherwise, start long press timer
-    element.classList.add('touch-pending');
+    // Delay showing the pending highlight so quick taps/scrolls don't flash it
+    state.pendingVisualTimer = window.setTimeout(() => {
+      element.classList.add('touch-pending');
+      state.pendingVisualTimer = null;
+    }, PENDING_VISUAL_DELAY);
 
     // Store the initial touch position for the timer callback
     const initialX = touch.clientX;
@@ -191,6 +197,10 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, g
         // Cancel the long press - user is scrolling
         clearTimeout(state.longPressTimer);
         state.longPressTimer = null;
+        if (state.pendingVisualTimer) {
+          clearTimeout(state.pendingVisualTimer);
+          state.pendingVisualTimer = null;
+        }
         state.pendingElement.classList.remove('touch-pending');
         state.pendingElement = null;
         state.pendingDragId = null;
@@ -262,6 +272,10 @@ export function useTouchDrag<T>({ items, getItemId, targetSelector, onReorder, g
     if (state.longPressTimer) {
       clearTimeout(state.longPressTimer);
       state.longPressTimer = null;
+    }
+    if (state.pendingVisualTimer) {
+      clearTimeout(state.pendingVisualTimer);
+      state.pendingVisualTimer = null;
     }
     if (state.pendingElement) {
       state.pendingElement.classList.remove('touch-pending');

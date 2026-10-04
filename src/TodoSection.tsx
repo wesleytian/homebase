@@ -3,7 +3,9 @@ import { Todo, ToggleSection } from './types';
 import { TodoItem, DropPosition } from './TodoItem';
 
 // Check if section name matches date format like "Mon, 1/19" or "Tues, 2/20"
-const DATE_PATTERN = /^(Mon|Tues|Wed|Thurs|Fri|Sat|Sun),?\s*\d{1,2}\/\d{1,2}$/i;
+// Matches a "Day, M/D" token anywhere in the name, so the section can be
+// renamed freely (prefix/suffix text, *, emoji) without losing its date.
+const DATE_PATTERN = /(Mon|Tues|Wed|Thurs|Fri|Sat|Sun),?\s*(\d{1,2})\/(\d{1,2})(?![\d/])/i;
 
 function isDateSection(name: string): boolean {
   return DATE_PATTERN.test(name);
@@ -22,11 +24,11 @@ function getTodayFormatted(): string {
 function isPastDateSection(name: string): boolean {
   if (!isDateSection(name)) return false;
 
-  const match = name.match(/(\d{1,2})\/(\d{1,2})$/);
+  const match = name.match(DATE_PATTERN);
   if (!match) return false;
 
-  const month = parseInt(match[1]) - 1; // 0-indexed
-  const day = parseInt(match[2]);
+  const month = parseInt(match[2]) - 1; // 0-indexed
+  const day = parseInt(match[3]);
   const now = new Date();
   const currentYear = now.getFullYear();
 
@@ -250,7 +252,9 @@ export function TodoSection({
   const isSectionDropTarget = dragState.targetId === section.id && dragState.targetType === 'section';
   const isSectionDragging = dragState.draggedId === section.id && dragState.type === 'section';
   const isTodoDropTarget = todoHovering && dragState.type === 'todo';
-  const isToday = section.name === getTodayFormatted();
+  const todayMd = getTodayFormatted().match(DATE_PATTERN);
+  const sectionMd = section.name.match(DATE_PATTERN);
+  const isToday = !!todayMd && !!sectionMd && todayMd[2] === sectionMd[2] && todayMd[3] === sectionMd[3];
 
   return (
     <div
@@ -379,19 +383,26 @@ export function TodoSection({
               onDelete={onDeleteTodo}
               onEdit={onEditTodo}
               onIndent={onIndentTodo}
-              onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
+              onCreateBelow={(id, indent, initialText) => onAddTodoAfter(initialText || '', id, indent)}
               onCreateAbove={(id, indent) => onAddTodoBefore('', id, indent)}
               onFocusPrev={index > 0 ? (pos: number) => focusTodoAtIndex(index - 1, pos) : undefined}
               onFocusNext={index < visibleTodos.length - 1 ? (pos: number) => focusTodoAtIndex(index + 1, pos) : () => addInputRef.current?.focus()}
               onDeleteAndFocusAbove={index > 0 ? (id) => {
                 const prevTodo = visibleTodos[index - 1];
                 onDeleteTodo(id);
-                // Focus the previous todo's input after a short delay
                 setTimeout(() => {
-                  const prevInput = document.querySelector(`[data-drag-id="${prevTodo.id}"] .todo-text-input`) as HTMLInputElement;
-                  if (prevInput) {
-                    prevInput.focus();
-                    prevInput.setSelectionRange(prevInput.value.length, prevInput.value.length);
+                  const el = document.querySelector(`[data-drag-id="${prevTodo.id}"] .todo-text-input, [data-drag-id="${prevTodo.id}"] .todo-editable`) as HTMLElement;
+                  if (!el) return;
+                  el.focus();
+                  if (el instanceof HTMLTextAreaElement) {
+                    el.setSelectionRange(el.value.length, el.value.length);
+                  } else {
+                    const range = document.createRange();
+                    range.selectNodeContents(el);
+                    range.collapse(false);
+                    const sel = window.getSelection();
+                    sel?.removeAllRanges();
+                    sel?.addRange(range);
                   }
                 }, 0);
               } : undefined}

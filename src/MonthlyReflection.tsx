@@ -139,23 +139,27 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
 
   useEffect(() => {
     if (initializedMonthRef.current === month) return;
+    // The reflection prop may lag the month prop (it loads asynchronously when
+    // navigating). Wait until it matches the requested month before initializing,
+    // otherwise we'd seed the form with the previous month's data and lock it in.
+    if (reflection && reflection.month !== month) return;
     initializedMonthRef.current = month;
     if (reflection) {
       setFormData({
         challenges: reflection.challenges,
         lookingForward: reflection.lookingForward,
-        ratingOverall: reflection.ratingOverall ?? 0,
-        ratingHealth: reflection.ratingHealth ?? 0,
-        ratingCareer: reflection.ratingCareer ?? 0,
-        ratingFinances: reflection.ratingFinances ?? 0,
-        ratingFriends: reflection.ratingFriends ?? 0,
-        ratingFamily: reflection.ratingFamily ?? 0,
-        ratingRomance: reflection.ratingRomance ?? 0,
-        ratingFun: reflection.ratingFun ?? 0,
-        ratingGrowth: reflection.ratingGrowth ?? 0,
-        ratingMentalHealth: reflection.ratingMentalHealth ?? 0,
-        ratingEnvironment: reflection.ratingEnvironment ?? 0,
-        ratingProductivity: reflection.ratingProductivity ?? 0,
+        ratingOverall: Number(reflection.ratingOverall ?? 0),
+        ratingHealth: Number(reflection.ratingHealth ?? 0),
+        ratingCareer: Number(reflection.ratingCareer ?? 0),
+        ratingFinances: Number(reflection.ratingFinances ?? 0),
+        ratingFriends: Number(reflection.ratingFriends ?? 0),
+        ratingFamily: Number(reflection.ratingFamily ?? 0),
+        ratingRomance: Number(reflection.ratingRomance ?? 0),
+        ratingFun: Number(reflection.ratingFun ?? 0),
+        ratingGrowth: Number(reflection.ratingGrowth ?? 0),
+        ratingMentalHealth: Number(reflection.ratingMentalHealth ?? 0),
+        ratingEnvironment: Number(reflection.ratingEnvironment ?? 0),
+        ratingProductivity: Number(reflection.ratingProductivity ?? 0),
         notesOverall: reflection.notesOverall ?? '',
         notesHealth: reflection.notesHealth ?? '',
         notesCareer: reflection.notesCareer ?? '',
@@ -197,6 +201,7 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
   }, [month, onSave]);
 
   const handleChange = (key: string, value: string) => {
+    if (isLocked) return;
     const newData = { ...formData, [key]: value };
     setFormData(newData);
     autoSave(newData);
@@ -205,9 +210,13 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
   };
 
   const handleRating = (key: string, value: number) => {
+    if (isLocked) return;
     const current = formData[key as RatingKey];
-    // Click same value to clear it
-    const newValue = current === value ? 0 : value;
+    // Click a number to cycle through: full (n) -> half (n - 0.5) -> cleared (0).
+    let newValue: number;
+    if (current === value) newValue = value - 0.5;
+    else if (current === value - 0.5) newValue = 0;
+    else newValue = value;
     const newData = { ...formData, [key]: newValue };
     setFormData(newData);
     autoSave(newData);
@@ -238,13 +247,12 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
   };
 
   const now = new Date();
-  // Allow navigating up to the current month (for end-of-month reflections)
-  const maxMonth = (() => {
-    const cur = new Date(now.getFullYear(), now.getMonth(), 1);
-    return `${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, '0')}`;
-  })();
+  const currentMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  // Reflections are for completed months only; the current month is locked until it ends.
+  const maxMonth = getPrevMonth(currentMonth);
   const canGoNext = month < maxMonth;
   const canGoPrev = month > '2026-01';
+  const isLocked = month >= currentMonth;
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -262,8 +270,8 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
   }, []);
 
   return (
-    <div className="monthly-reflection-overlay" onClick={onClose}>
-      <div className="monthly-reflection-modal" onClick={(e) => e.stopPropagation()}>
+    <div className="monthly-reflection-overlay">
+      <div className="monthly-reflection-modal">
         <div className="monthly-reflection-header">
           <div className="monthly-reflection-nav">
             <button className="monthly-nav-btn" onClick={() => handleNav('prev')} disabled={!canGoPrev}>{'\u2039'}</button>
@@ -281,6 +289,11 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
         </div>
 
         <div className="monthly-reflection-content">
+          {isLocked && (
+            <div className="monthly-reflection-locked-notice">
+              {formatMonth(month)} isn't over yet — you can fill this in once the month ends.
+            </div>
+          )}
           <div className="monthly-reflection-ratings">
             <label className="monthly-reflection-ratings-title">Rate your month</label>
             {RATING_CATEGORIES.map(({ key, notesKey, label }) => (
@@ -291,8 +304,9 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
                     {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                       <button
                         key={n}
-                        className={`monthly-rating-dot ${formData[key] >= n ? 'filled' : ''}`}
+                        className={`monthly-rating-dot ${formData[key] >= n ? 'filled' : formData[key] === n - 0.5 ? 'half' : ''}`}
                         onClick={() => handleRating(key, n)}
+                        disabled={isLocked}
                       >
                         {n}
                       </button>
@@ -307,6 +321,7 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
                     onChange={(e) => handleChange(notesKey, e.target.value)}
                     placeholder="Notes..."
                     rows={1}
+                    disabled={isLocked}
                   />
                 </div>
               </div>
@@ -358,6 +373,7 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
                       value={formData['overallLife' as keyof FormData] as string || ''}
                       onChange={(e) => handleChange('overallLife', e.target.value)}
                       placeholder="Write your thoughts..."
+                      disabled={isLocked}
                     />
                   </div>
                 </div>
@@ -373,6 +389,7 @@ export function MonthlyReflectionModal({ reflection, allReflections, month, onSa
                 value={formData[key as QuestionKey]}
                 onChange={(e) => handleChange(key, e.target.value)}
                 placeholder="Write your thoughts..."
+                disabled={isLocked}
               />
             </div>
           ))}

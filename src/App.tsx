@@ -4,7 +4,7 @@ import { LoginPage } from './LoginPage';
 import { trackEvent, trackFeatureUsed, trackSessionStart } from './analytics';
 import { useUndo } from './useUndo';
 import { ToastContainer, ToastItem } from './Toast';
-import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS, FriendSection, DEFAULT_SECTIONS } from './types';
+import { RoutineWithProgress, Todo, ToggleSection, Goal, GoalSubtask, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendTier, AppSettings, DEFAULT_SETTINGS, FriendSection, DEFAULT_SECTIONS, HealthItem, HealthSection } from './types';
 import {
   getAllRoutines,
   addRoutine,
@@ -68,6 +68,10 @@ import {
   createOrUpdateMonthlyReflection,
   logError,
   getEarliestCompletionWeek,
+  getAllHealthItems,
+  addHealthItem,
+  updateHealthItem,
+  deleteHealthItem,
 } from './db';
 import { RoutineList } from './RoutineList';
 import { TodoList } from './TodoList';
@@ -83,6 +87,7 @@ const FriendsPage = lazy(() => import('./FriendsPage').then(m => ({ default: m.F
 import { CookieJar } from './CookieJar';
 import { MonthlyReflectionModal } from './MonthlyReflection';
 const SettingsPage = lazy(() => import('./SettingsPage').then(m => ({ default: m.SettingsPage })));
+const HealthPage = lazy(() => import('./HealthPage').then(m => ({ default: m.HealthPage })));
 import './App.css';
 
 function useMobileLayout(breakpoint = 700) {
@@ -210,6 +215,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const [todayJournal, setTodayJournal] = useState<JournalEntry | null>(c ? c[7] as JournalEntry | null : null);
   const [allJournalEntries, setAllJournalEntries] = useState<JournalEntry[]>([]);
   const [journalEntriesLoaded, setJournalEntriesLoaded] = useState(false);
+  const [healthItems, setHealthItems] = useState<HealthItem[]>([]);
+  const [healthLoaded, setHealthLoaded] = useState(false);
   const [showJournalEditor, setShowJournalEditor] = useState(false);
   const [monthlyReflections, setMonthlyReflections] = useState<MonthlyReflection[]>(c ? c[13] as MonthlyReflection[] : []);
   const [showMonthlyReflection, setShowMonthlyReflection] = useState(false);
@@ -274,10 +281,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   }, [earliestWeekStart, getDayStartForOffset]);
 
   // Hash-based routing for browser back/forward support
-  type Page = 'dashboard' | 'journal' | 'friends' | 'settings' | 'privacy' | 'terms';
+  type Page = 'dashboard' | 'journal' | 'friends' | 'settings' | 'privacy' | 'terms' | 'health';
   const getPageFromHash = useCallback((): Page => {
     const hash = window.location.hash.slice(1);
-    if (hash === 'journal' || hash === 'friends' || hash === 'settings' || hash === 'privacy' || hash === 'terms') {
+    if (hash === 'journal' || hash === 'friends' || hash === 'settings' || hash === 'privacy' || hash === 'terms' || hash === 'health') {
       return hash;
     }
     return 'dashboard';
@@ -325,6 +332,35 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       }).catch((err) => showError("Couldn't load journal entries.", 'journal', err));
     }
   }, [currentPage, journalEntriesLoaded, showError]);
+
+  useEffect(() => {
+    if (!healthLoaded) {
+      getAllHealthItems().then((rows) => {
+        setHealthItems(rows);
+        setHealthLoaded(true);
+      }).catch((err) => showError("Couldn't load health items.", 'health', err));
+    }
+  }, [healthLoaded, showError]);
+
+  const handleAddHealthItem = useCallback(async (section: HealthSection, name: string, extras: { emoji?: string; priority?: string; frequency?: string; notes?: string } = {}) => {
+    try {
+      const created = await addHealthItem(section, name, extras);
+      setHealthItems((prev) => [...prev, created]);
+      return created;
+    } catch (err) {
+      showError("Couldn't add health item.", 'health', err as Error);
+    }
+  }, [showError]);
+
+  const handleUpdateHealthItem = useCallback((id: string, updates: Partial<Pick<HealthItem, 'name' | 'value' | 'link' | 'date' | 'whereAt' | 'frequency' | 'emoji' | 'priority' | 'notes'>>) => {
+    setHealthItems((prev) => prev.map((i) => (i.id === id ? { ...i, ...updates, updatedAt: Date.now() } : i)));
+    updateHealthItem(id, updates).catch((err) => showError("Couldn't save health item.", 'health', err as Error));
+  }, [showError]);
+
+  const handleDeleteHealthItem = useCallback((id: string) => {
+    setHealthItems((prev) => prev.filter((i) => i.id !== id));
+    deleteHealthItem(id).catch((err) => showError("Couldn't delete health item.", 'health', err as Error));
+  }, [showError]);
 
   const [loadError, setLoadError] = useState(false);
   const [loadProgress, setLoadProgress] = useState(0);
@@ -404,8 +440,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
         : new Date(now.getFullYear(), now.getMonth(), 1);
       const reflectMonthStr = `${reflectMonth.getFullYear()}-${String(reflectMonth.getMonth() + 1).padStart(2, '0')}`;
       const existing = allMonthlyReflections.find((r) => r.month === reflectMonthStr);
-      const isIncomplete = !existing || (!existing.overall && !existing.challenges && !existing.lookingForward && !existing.ratingOverall);
-      const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${reflectMonthStr}`);
+      const isIncomplete = !existing || (!existing.overallLife && !existing.challenges && !existing.lookingForward && !existing.ratingOverall);
+      const dismissed = localStorage.getItem(`monthlyReflectionDismissed-${reflectMonthStr}-${isFirstSunday ? 'after' : 'during'}`);
       if (isIncomplete && !dismissed) {
         setMonthlyReflectionMonth(reflectMonthStr);
         setCurrentMonthlyReflection(existing || null);
@@ -831,10 +867,27 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     updates: { name?: string; metadata?: string; frequencyPerWeek?: number }
   ) => {
     const routine = routines.find((r) => r.id === id);
-    if (routine) {
-      await updateRoutine({ ...routine, ...updates });
-      loadData();
-    }
+    if (!routine) return;
+
+    // Update locally instead of calling loadData(): editing name/metadata/frequency
+    // doesn't touch completions, and loadData() recomputes progress from today's
+    // perspective — which wipes the viewed-day state when navigating past days.
+    const currentWeekStart = getWeekStart();
+    const prevWeekStart = currentWeekStart - 7 * 24 * 60 * 60 * 1000;
+    setRoutines((prev) =>
+      prev.map((r) => {
+        if (r.id !== id) return r;
+        const merged = { ...r, ...updates };
+        const streakAtRisk =
+          routineDayOffset === 0 &&
+          merged.currentStreak > 0 &&
+          merged.completedThisWeek < merged.frequencyPerWeek &&
+          (merged.streakGraceUsed || merged.lastStreakWeek === prevWeekStart);
+        return { ...merged, streakAtRisk };
+      })
+    );
+
+    await updateRoutine({ ...routine, ...updates });
   };
 
   const handleReorderRoutines = async (reorderedRoutines: RoutineWithProgress[]) => {
@@ -921,7 +974,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 
     // Generate a temporary ID for optimistic update
     const tempId = crypto.randomUUID();
-    const afterIndex = todos.findIndex((t) => t.id === afterTodoId);
 
     // Create the new todo optimistically
     const newTodo: Todo = {
@@ -935,10 +987,15 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       completedAt: null,
     };
 
-    // Update state immediately (optimistic)
-    const newTodos = [...todos];
-    newTodos.splice(afterIndex + 1, 0, newTodo);
-    setTodos(newTodos);
+    // Update state immediately (optimistic) — functional form so prior queued
+    // updates (e.g. from onEdit called just before) are preserved.
+    setTodos((prev) => {
+      const idx = prev.findIndex((t) => t.id === afterTodoId);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next.splice(idx + 1, 0, newTodo);
+      return next;
+    });
 
     // Track real ID for undo (will be updated when DB responds)
     let realId: string = tempId;
@@ -1019,7 +1076,6 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     if (!beforeTodo) return;
 
     const tempId = crypto.randomUUID();
-    const beforeIndex = todos.findIndex((t) => t.id === beforeTodoId);
 
     const newTodo: Todo = {
       id: tempId,
@@ -1032,9 +1088,13 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       completedAt: null,
     };
 
-    const newTodos = [...todos];
-    newTodos.splice(beforeIndex, 0, newTodo);
-    setTodos(newTodos);
+    setTodos((prev) => {
+      const idx = prev.findIndex((t) => t.id === beforeTodoId);
+      if (idx === -1) return prev;
+      const next = [...prev];
+      next.splice(idx, 0, newTodo);
+      return next;
+    });
 
     let realId: string = tempId;
 
@@ -1447,9 +1507,14 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const date = now.getDate();
     const todayFormatted = `${dayName}, ${month}/${date}`;
 
-    // Find or create today's section
+    // Find or create today's section. Match by the "Day, M/D" token so a
+    // renamed today section (e.g. with a trailing *) is still reused.
     let todaySectionId: string;
-    const existingSection = sections.find((s) => s.name === todayFormatted);
+    const dateRe = /(Mon|Tues|Wed|Thurs|Fri|Sat|Sun),?\s*(\d{1,2})\/(\d{1,2})(?![\d/])/i;
+    const existingSection = sections.find((s) => {
+      const m = s.name.match(dateRe);
+      return !!m && parseInt(m[2]) === month && parseInt(m[3]) === date;
+    });
 
     if (existingSection) {
       todaySectionId = existingSection.id;
@@ -1484,9 +1549,16 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       }).catch(onSectionError);
     }
 
+    // A todo is treated as "done" if it's completed OR fully wrapped in strikethrough
+    // (e.g. "~~Call the dentist~~" with nothing else outside the markers).
+    const isFullyStruckthrough = (text: string) => {
+      if (!text.includes('~~')) return false;
+      return text.replace(/~~([^~]+)~~/g, '').trim() === '';
+    };
+
     // Get todos in source section (in order)
     const sectionTodos = todos.filter((t) => t.sectionId === sourceSectionId);
-    const uncompletedTodos = sectionTodos.filter((t) => !t.completed);
+    const uncompletedTodos = sectionTodos.filter((t) => !t.completed && !isFullyStruckthrough(t.text));
 
     if (uncompletedTodos.length === 0) return;
 
@@ -1794,6 +1866,28 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     );
   }
 
+  if (currentPage === 'health') {
+    return (
+      <div className="app">
+        <Suspense fallback={<div className="app-loader"><span className="loader-icon">🏡</span><div className="loader-bar-track"><div className="loader-bar-fill loader-bar-slow" /></div></div>}>
+          {healthLoaded ? (
+            <HealthPage
+              items={healthItems}
+              onBack={() => { setCurrentPage('dashboard'); }}
+              onAdd={handleAddHealthItem}
+              onUpdate={handleUpdateHealthItem}
+              onDelete={handleDeleteHealthItem}
+              testNotes={settings.healthTestNotes || ''}
+              onTestNotesChange={(notes) => handleSettingsChange({ ...settings, healthTestNotes: notes })}
+            />
+          ) : (
+            <div className="app-loader"><span className="loader-icon">🏡</span><div className="loader-bar-track"><div className="loader-bar-fill loader-bar-slow" /></div></div>
+          )}
+        </Suspense>
+      </div>
+    );
+  }
+
   if (currentPage === 'friends') {
     return (
       <div className="app">
@@ -2050,25 +2144,34 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     const isLastSundayBeforeNewMonth = now.getDay() === 0 && daysUntilNextMonth <= 4;
     const isReflectionSunday = isFirstSunday || isLastSundayBeforeNewMonth;
 
-    // First Sunday: reflect on previous month. Last Sunday before new month: reflect on current month.
-    const reflectMonth = isFirstSunday
+    // Only show the banner during the last few days of a month (reflect on the
+    // current, about-to-end month) or during the first week of the next month
+    // (reflect on the previous, just-completed month). Never nag about the
+    // current month until it's actually nearly over.
+    const isLastFewDaysOfMonth = daysUntilNextMonth <= 4;
+    const isFirstWeekOfMonth = now.getDate() <= 7;
+    if (!isLastFewDaysOfMonth && !isFirstWeekOfMonth) return null;
+
+    // First week of the month: reflect on the previous month.
+    // Last few days of the month: reflect on the current month.
+    const reflectMonth = isFirstWeekOfMonth
       ? new Date(now.getFullYear(), now.getMonth() - 1, 1)
       : new Date(now.getFullYear(), now.getMonth(), 1);
     const reflectMonthStr = `${reflectMonth.getFullYear()}-${String(reflectMonth.getMonth() + 1).padStart(2, '0')}`;
     const existing = monthlyReflections.find((r) => r.month === reflectMonthStr);
     const isComplete = existing
-      && existing.overall && existing.challenges && existing.lookingForward
+      && existing.overallLife && existing.challenges && existing.lookingForward
       && existing.ratingOverall && existing.ratingHealth && existing.ratingCareer
       && existing.ratingFinances && existing.ratingFriends && existing.ratingFamily
       && existing.ratingRomance && existing.ratingFun && existing.ratingGrowth
-      && existing.ratingMentalHealth && existing.ratingSpirituality
+      && existing.ratingMentalHealth
       && existing.ratingEnvironment && existing.ratingProductivity;
     const monthName = reflectMonth.toLocaleDateString('en-US', { month: 'long' });
-    // Only show banner during last week of month or first week of next month
-    const isLastWeekOfMonth = daysUntilNextMonth <= 7;
-    const isFirstWeekOfMonth = now.getDate() <= 7;
-    if (!isLastWeekOfMonth && !isFirstWeekOfMonth) return null;
-    if (isComplete || reflectionDismissed || localStorage.getItem(`monthlyReflectionDismissed-${reflectMonthStr}`)) return null;
+    // Scope the dismissal to the window it was dismissed in, so dismissing the
+    // end-of-month heads-up doesn't also suppress the start-of-next-month final
+    // reminder for the same (still-unfinished) reflection.
+    const dismissKey = `monthlyReflectionDismissed-${reflectMonthStr}-${isFirstWeekOfMonth ? 'after' : 'during'}`;
+    if (isComplete || reflectionDismissed || localStorage.getItem(dismissKey)) return null;
     return (
       <div className={`monthly-reflection-banner ${isComplete ? 'complete' : ''} ${isReflectionSunday && !isComplete ? 'urgent' : ''}`}>
         <span className="monthly-reflection-banner-text">
@@ -2083,10 +2186,34 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
             setShowMonthlyReflection(true);
           }}>{isComplete ? 'Review' : 'Open'}</button>
           <button className="monthly-reflection-dismiss" onClick={() => {
-            localStorage.setItem(`monthlyReflectionDismissed-${reflectMonthStr}`, 'true');
+            localStorage.setItem(dismissKey, 'true');
             setReflectionDismissed(true);
           }}>Dismiss</button>
         </div>
+      </div>
+    );
+  })();
+
+  const healthBanner = (() => {
+    const currentMonth = new Date().getMonth() + 1;
+    const dueThisMonth = healthItems.filter((i) => {
+      if (i.section !== 'test') return false;
+      const months = i.date ? i.date.split(',').map((p) => parseInt(p.trim(), 10)) : [];
+      if (!months.includes(currentMonth)) return false;
+      // One-time tests already completed shouldn't keep nagging
+      if (i.frequency === 'one-time') {
+        const doneAny = (i.value || '').split(',').map((s) => s.trim()).filter(Boolean).length > 0;
+        if (doneAny) return false;
+      }
+      return true;
+    });
+    if (dueThisMonth.length === 0) return null;
+    return (
+      <div className="health-banner" onClick={() => setCurrentPage('health')}>
+        <span className="health-banner-icon">🩺</span>
+        <span className="health-banner-text">
+          <strong>Health this month:</strong> {dueThisMonth.map((t) => `${t.emoji || '🧪'} ${t.name}`).join(' · ')}
+        </span>
       </div>
     );
   })();
@@ -2140,6 +2267,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
           {mobileTab === 'todos' && (
             <>
               {statsBanner}
+              {healthBanner}
               {journalBanner}
               {monthlyReflectionBanner}
               <TodoList
@@ -2180,6 +2308,10 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
                 <button className="mobile-more-item" onClick={() => setCurrentPage('friends')}>
                   <span className="mobile-more-icon">👥</span>
                   <span>Friends</span>
+                </button>
+                <button className="mobile-more-item" onClick={() => setCurrentPage('health')}>
+                  <span className="mobile-more-icon">🩺</span>
+                  <span>Health</span>
                 </button>
                 <button className="mobile-more-item" onClick={() => setCurrentPage('settings')}>
                   <span className="mobile-more-icon">⚙️</span>
@@ -2249,6 +2381,9 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
 <button className="settings-btn" onClick={onSignOut} data-tooltip="Sign out" data-tooltip-bottom style={{ marginRight: 4 }}>
               <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
             </button>
+            <button className="settings-btn" onClick={() => setCurrentPage('health')} data-tooltip="Health" data-tooltip-bottom style={{ marginRight: 4 }}>
+              <span style={{ fontSize: '1.1rem' }}>🩺</span>
+            </button>
             <button className="settings-btn" onClick={() => setCurrentPage('settings')}>
             <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
               <path d="M19.14 12.94c.04-.31.06-.63.06-.94 0-.31-.02-.63-.06-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
@@ -2258,6 +2393,8 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       </header>
 
       {statsBanner}
+
+      {healthBanner}
 
       {monthlyReflectionBanner}
 

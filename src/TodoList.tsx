@@ -40,10 +40,19 @@ interface DragState {
   targetIndent: number;
 }
 
-const DATE_PATTERN = /^(Mon|Tues|Wed|Thurs|Fri|Sat|Sun),?\s*\d{1,2}\/\d{1,2}$/i;
+// Matches a "Day, M/D" token anywhere in the name, so the section can be
+// renamed freely (prefix/suffix text, *, emoji) without losing its date.
+const DATE_PATTERN = /(Mon|Tues|Wed|Thurs|Fri|Sat|Sun),?\s*(\d{1,2})\/(\d{1,2})(?![\d/])/i;
 
 function isDateSection(name: string): boolean {
   return DATE_PATTERN.test(name);
+}
+
+// Extract the 1-indexed month/day from a date-section name, or null.
+function getSectionMonthDay(name: string): { month: number; day: number } | null {
+  const m = name.match(DATE_PATTERN);
+  if (!m) return null;
+  return { month: parseInt(m[2]), day: parseInt(m[3]) };
 }
 
 export function TodoList({
@@ -247,17 +256,48 @@ export function TodoList({
     },
   });
 
-  // Compute next available day section (today through next 7 days)
+  // TEMP DIAGNOSTIC: log raw drag events at the document level.
+  useEffect(() => {
+    const fmt = (el: EventTarget | null) => {
+      const node = el as HTMLElement;
+      if (!node || !node.closest) return String(el);
+      const sec = node.closest('.todo-section');
+      const hdr = node.closest('.section-header');
+      return `tag=${node.tagName} cls="${node.className}" inHeader=${!!hdr} inSection=${!!sec}`;
+    };
+    let lastOver = '';
+    const onOver = (e: DragEvent) => {
+      const s = fmt(e.target);
+      if (s !== lastOver) { lastOver = s; console.log('[doc dragover]', s, 'defaultPrevented=', e.defaultPrevented); }
+    };
+    const onDrop = (e: DragEvent) => console.log('[doc DROP]', fmt(e.target), 'defaultPrevented=', e.defaultPrevented);
+    const onEnd = () => console.log('[doc dragend]');
+    document.addEventListener('dragover', onOver);
+    document.addEventListener('drop', onDrop);
+    document.addEventListener('dragend', onEnd);
+    return () => {
+      document.removeEventListener('dragover', onOver);
+      document.removeEventListener('drop', onDrop);
+      document.removeEventListener('dragend', onEnd);
+    };
+  }, []);
+
+  // Compute next available day section (today through next 7 days). Check by
+  // the date token so renamed day sections still count as "already exists".
   const dayNames = ['Sun', 'Mon', 'Tues', 'Wed', 'Thurs', 'Fri', 'Sat'];
-  const existingNames = new Set(sections.map((s) => s.name.trim()));
+  const existingDays = new Set(
+    sections
+      .map((s) => getSectionMonthDay(s.name))
+      .filter((md): md is { month: number; day: number } => md !== null)
+      .map((md) => `${md.month}/${md.day}`)
+  );
   let nextDaySection: string | null = null;
   const now = new Date();
   for (let offset = 0; offset <= 6; offset++) {
     const d = new Date(now);
     d.setDate(d.getDate() + offset);
-    const name = `${dayNames[d.getDay()]}, ${d.getMonth() + 1}/${d.getDate()}`;
-    if (!existingNames.has(name)) {
-      nextDaySection = name;
+    if (!existingDays.has(`${d.getMonth() + 1}/${d.getDate()}`)) {
+      nextDaySection = `${dayNames[d.getDay()]}, ${d.getMonth() + 1}/${d.getDate()}`;
       break;
     }
   }
@@ -269,6 +309,14 @@ export function TodoList({
       // so we need one more slot to maintain the same number of visible past sections
       setVisibleSectionCount((c) => c + 1);
       onAddSection(nextDaySection);
+    }
+  };
+
+  // Create a list not tied to a day (always visible; rename via double-click on its title).
+  const handleAddCustomList = () => {
+    const name = window.prompt('Name this list')?.trim();
+    if (name) {
+      onAddSection(name);
     }
   };
 
@@ -344,7 +392,22 @@ export function TodoList({
     const containerLeft = container?.getBoundingClientRect().left ?? rect.left;
     const relativeX = e.clientX - containerLeft;
     // Each indent level is 24px, calculate target indent (0-3)
-    const targetIndent = Math.min(3, Math.max(0, Math.floor(relativeX / 40)));
+    let targetIndent = Math.min(3, Math.max(0, Math.floor(relativeX / 40)));
+
+    // Limit indent to at most one level deeper than the item directly above the
+    // drop point (excluding the dragged items) — can't skip indent levels.
+    const draggedIds = dragRef.current.selectedIds ?? new Set([dragRef.current.id]);
+    const targetIdx = todos.findIndex((t) => t.id === targetId);
+    let prevIndent = -1;
+    // The item above the insertion point is the target itself when dropping below,
+    // otherwise the nearest non-dragged item before the target.
+    const startIdx = position === 'below' ? targetIdx : targetIdx - 1;
+    for (let i = startIdx; i >= 0; i--) {
+      if (draggedIds.has(todos[i].id)) continue;
+      prevIndent = todos[i].indent ?? 0;
+      break;
+    }
+    targetIndent = Math.min(targetIndent, prevIndent + 1);
 
     setDragState((s) => ({ ...s, targetId, targetType: 'todo', position, targetIndent }));
   };
@@ -447,6 +510,9 @@ export function TodoList({
     dragRef.current = { type: 'section', id };
     setDragState((s) => ({ ...s, type: 'section', draggedId: id }));
     e.dataTransfer.effectAllowed = 'move';
+    // Some browsers won't initiate a drag unless data is set.
+    e.dataTransfer.setData('text/plain', id);
+    console.log('[section drag] start', id);
   };
 
   const handleSectionDragOver = (e: React.DragEvent, targetId: string) => {
@@ -468,15 +534,24 @@ export function TodoList({
 
   const handleSectionDrop = (e: React.DragEvent, targetId: string) => {
     e.preventDefault();
+    console.log('[section drag] drop on', targetId, 'dragRef=', dragRef.current, 'pos=', dragState.position);
     if (!dragRef.current || dragRef.current.type !== 'section') return;
     if (dragRef.current.id === targetId) return;
 
-    const draggedIndex = sections.findIndex((s) => s.id === dragRef.current!.id);
-    const targetIndex = sections.findIndex((s) => s.id === targetId);
+    // Reorder against the order the user actually sees (Later pinned first),
+    // not the raw array — otherwise "below Later" maps to Later's array slot
+    // (which may be at the bottom) instead of the top of the list.
+    const newSections = [...sections].sort((a, b) => {
+      if (a.name.toLowerCase() === 'later') return -1;
+      if (b.name.toLowerCase() === 'later') return 1;
+      return 0;
+    });
+
+    const draggedIndex = newSections.findIndex((s) => s.id === dragRef.current!.id);
+    const targetIndex = newSections.findIndex((s) => s.id === targetId);
 
     if (draggedIndex === -1 || targetIndex === -1) return;
 
-    const newSections = [...sections];
     const [dragged] = newSections.splice(draggedIndex, 1);
 
     let insertIndex = targetIndex;
@@ -691,16 +766,22 @@ export function TodoList({
 
   return (
     <div className="todo-list" onDragEnd={handleDragEnd} onClick={handleContainerClick}>
-      {nextDaySection && (
-        <div className="section-add-buttons">
+      <div className="section-add-buttons">
+        {nextDaySection && (
           <button
             className="add-section-btn add-next-day-btn"
             onClick={handleAddNextDay}
           >
             + {nextDaySection}
           </button>
-        </div>
-      )}
+        )}
+        <button
+          className="add-section-btn add-custom-list-btn"
+          onClick={handleAddCustomList}
+        >
+          + List
+        </button>
+      </div>
 
       <div
         className={`unsectioned-area ${unsectionedHover && isDraggingFromSection ? 'drop-target' : ''}`}
@@ -722,17 +803,24 @@ export function TodoList({
             onDelete={onDeleteTodo}
             onEdit={onEditTodo}
             onIndent={onIndentTodo}
-            onCreateBelow={(id, indent) => onAddTodoAfter('', id, indent)}
+            onCreateBelow={(id, indent, initialText) => onAddTodoAfter(initialText || '', id, indent)}
             onCreateAbove={(id, indent) => onAddTodoBefore('', id, indent)}
             onDeleteAndFocusAbove={index > 0 ? (id) => {
               const prevTodo = visibleUnsectionedTodos[index - 1];
               onDeleteTodo(id);
-              // Focus the previous todo's input after a short delay
               setTimeout(() => {
-                const prevInput = document.querySelector(`[data-drag-id="${prevTodo.id}"] .todo-text-input`) as HTMLInputElement;
-                if (prevInput) {
-                  prevInput.focus();
-                  prevInput.setSelectionRange(prevInput.value.length, prevInput.value.length);
+                const el = document.querySelector(`[data-drag-id="${prevTodo.id}"] .todo-text-input, [data-drag-id="${prevTodo.id}"] .todo-editable`) as HTMLElement;
+                if (!el) return;
+                el.focus();
+                if (el instanceof HTMLTextAreaElement) {
+                  el.setSelectionRange(el.value.length, el.value.length);
+                } else {
+                  const range = document.createRange();
+                  range.selectNodeContents(el);
+                  range.collapse(false);
+                  const sel = window.getSelection();
+                  sel?.removeAllRanges();
+                  sel?.addRange(range);
                 }
               }, 0);
             } : undefined}
@@ -763,35 +851,30 @@ export function TodoList({
         // Show today's and tomorrow's sections (if exist) + recent sections with todos up to visibleSectionCount
         const now = new Date();
         const currentYear = now.getFullYear();
-        const todayStr = `${now.getMonth() + 1}/${now.getDate()}`;
         const tomorrow = new Date(now);
         tomorrow.setDate(tomorrow.getDate() + 1);
-        const tomorrowStr = `${tomorrow.getMonth() + 1}/${tomorrow.getDate()}`;
 
         // Helper to parse section date
         const parseSectionDate = (section: ToggleSection) => {
-          const match = section.name.match(/(\d{1,2})\/(\d{1,2})$/);
-          if (!match) return null;
-          const month = parseInt(match[1]) - 1;
-          const day = parseInt(match[2]);
-          const sectionDate = new Date(currentYear, month, day);
+          const md = getSectionMonthDay(section.name);
+          if (!md) return null;
+          const sectionDate = new Date(currentYear, md.month - 1, md.day);
           if (sectionDate.getTime() > now.getTime() + 180 * 24 * 60 * 60 * 1000) {
             sectionDate.setFullYear(currentYear - 1);
           }
           return sectionDate.getTime();
         };
 
+        const matchesDay = (name: string, d: Date) => {
+          const md = getSectionMonthDay(name);
+          return !!md && md.month === d.getMonth() + 1 && md.day === d.getDate();
+        };
+
         // Find today's section (even if empty)
-        const todaySection = sections.find((s) => {
-          if (!isDateSection(s.name)) return false;
-          return s.name.endsWith(todayStr);
-        });
+        const todaySection = sections.find((s) => matchesDay(s.name, now));
 
         // Find tomorrow's section (even if empty)
-        const tomorrowSection = sections.find((s) => {
-          if (!isDateSection(s.name)) return false;
-          return s.name.endsWith(tomorrowStr);
-        });
+        const tomorrowSection = sections.find((s) => matchesDay(s.name, tomorrow));
 
         // Get date sections with todos (excluding today/tomorrow since we handle them separately)
         const dateSectionsWithTodos = sections
@@ -825,13 +908,16 @@ export function TodoList({
           // Only show top-level sections (child sections render inside their parents)
           if (section.parentId) return false;
           if (section.name.toLowerCase() === 'later') return true;
+          // Custom (non-date) lists are always shown, regardless of visible count.
+          if (!isDateSection(section.name)) return true;
           return recentIds.has(section.id);
         });
-        // Sort: Later first, then by date (most recent first)
+        // Later pinned first; everything else keeps its stored order so custom
+        // lists can be dragged to any position among the date sections.
         return filtered.sort((a, b) => {
           if (a.name.toLowerCase() === 'later') return -1;
           if (b.name.toLowerCase() === 'later') return 1;
-          return 0; // Keep relative order for date sections
+          return 0; // stable: preserves the order-field ordering
         });
       })().map((section) => (
         <TodoSection
@@ -879,8 +965,10 @@ export function TodoList({
       {(() => {
         // Count total date sections with todos (or today's section)
         const now = new Date();
-        const todayStr = `${now.getMonth() + 1}/${now.getDate()}`;
-        const todaySection = sections.find((s) => isDateSection(s.name) && s.name.endsWith(todayStr));
+        const todaySection = sections.find((s) => {
+          const md = getSectionMonthDay(s.name);
+          return !!md && md.month === now.getMonth() + 1 && md.day === now.getDate();
+        });
 
         const dateSectionsWithTodos = sections.filter((s) => {
           if (s.parentId) return false; // Exclude child sections

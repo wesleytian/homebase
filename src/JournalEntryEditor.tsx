@@ -48,18 +48,22 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
         amazingThings: entry.amazingThings,
         learned: entry.learned,
       });
+      // Size all textareas once to fit the loaded content
+      requestAnimationFrame(() => {
+        textareaRefs.current.forEach((ta) => {
+          if (!ta) return;
+          ta.style.height = 'auto';
+          ta.style.height = Math.max(60, ta.scrollHeight) + 'px';
+        });
+      });
     }
   }, [entry]);
 
-  // Auto-resize textareas on content change
-  useEffect(() => {
-    textareaRefs.current.forEach((textarea) => {
-      if (textarea) {
-        textarea.style.height = 'auto';
-        textarea.style.height = Math.max(60, textarea.scrollHeight) + 'px';
-      }
-    });
-  }, [formData]);
+  const resizeTextarea = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = Math.max(60, el.scrollHeight) + 'px';
+  };
 
   const autoSave = useCallback((data: typeof formData) => {
     if (saveTimeoutRef.current) {
@@ -81,15 +85,20 @@ export function JournalEntryEditor({ entry, date, onSave, onClose }: Props) {
   const handleChange = (key: string, value: string) => {
     const newData = { ...formData, [key]: value };
     setFormData(newData);
+    // Resize only the field being typed in (avoids touching the others, which
+    // would shift the modal's scroll position).
+    resizeTextarea(textareaRefs.current.get(key) ?? null);
     autoSave(newData);
   };
 
   const setTextareaRef = (key: string) => (el: HTMLTextAreaElement | null) => {
-    if (el) {
-      textareaRefs.current.set(key, el);
-      el.style.height = 'auto';
-      el.style.height = Math.max(60, el.scrollHeight) + 'px';
-    }
+    if (!el) return;
+    // Only size on first attach; otherwise re-renders re-run this ref and the
+    // height reset would shift the modal's scroll position on every keystroke.
+    if (textareaRefs.current.get(key) === el) return;
+    textareaRefs.current.set(key, el);
+    el.style.height = 'auto';
+    el.style.height = Math.max(60, el.scrollHeight) + 'px';
   };
 
   const formatDate = (dateStr: string) => {

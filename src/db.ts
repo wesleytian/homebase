@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Routine, Completion, Todo, ToggleSection, Goal, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendConnection } from './types';
+import { Routine, Completion, Todo, ToggleSection, Goal, JournalEntry, MonthlyReflection, ReadingNote, Friend, FriendConnection, HealthItem, HealthSection } from './types';
 
 // Current user ID - set by AuthContext on login
 let currentUserId: string | null = null;
@@ -441,9 +441,47 @@ export async function deleteTodo(id: string): Promise<void> {
 }
 
 export async function reorderTodos(todos: Todo[]): Promise<void> {
-  for (let i = 0; i < todos.length; i++) {
-    await supabase.from('todos').update({ order: i, section_id: todos[i].sectionId }).eq('id', todos[i].id);
+  // Absolute order values keyed by id. The payload is idempotent (it sets
+  // orders, doesn't increment), so the whole call is safe to retry on a flaky
+  // connection.
+  const items = todos.map((t, i) => ({ id: t.id, order: i, section_id: t.sectionId }));
+  if (items.length === 0) return;
+
+  // Primary path: one transactional RPC. Every row is renumbered in a single
+  // statement, so a dropped connection can no longer leave the list
+  // half-written — the bug that scrambled todos after an offline edit.
+  let lastError: { code?: string; message?: string } | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { error } = await supabase.rpc('reorder_todos', { items });
+    if (!error) return;
+    lastError = error;
+    // Function not deployed yet (migration not applied) → skip retries, fall back.
+    if (error.code === 'PGRST202') break;
+    // Transient/network error: brief backoff, then retry the idempotent call.
+    await new Promise((r) => setTimeout(r, 300 * (attempt + 1)));
   }
+
+  // Fallback only when the RPC itself is missing (e.g. before the migration is
+  // applied). Attempt every row without aborting on the first failure, then
+  // fail loudly if any didn't stick — never silently leave a partial write.
+  if (lastError?.code === 'PGRST202') {
+    const results = await Promise.allSettled(
+      items.map((it) =>
+        supabase
+          .from('todos')
+          .update({ order: it.order, section_id: it.section_id })
+          .eq('id', it.id)
+          .then(({ error }) => {
+            if (error) throw error;
+          })
+      )
+    );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    if (failed === 0) return;
+    throw new Error(`reorderTodos fallback: ${failed}/${items.length} row updates failed`);
+  }
+
+  throw lastError;
 }
 
 // Sections
@@ -1285,4 +1323,76 @@ export async function getDashboardStats(weekStart: number): Promise<DashboardSta
     bestRoutineStreakName: topRoutine?.name || '',
     daysOnPlatform,
   };
+}
+
+// Health items
+export async function getAllHealthItems(): Promise<HealthItem[]> {
+  const userId = requireUserId();
+  const { data, error } = await supabase
+    .from('health_items')
+    .select('*')
+    .eq('user_id', userId)
+    .order('section', { ascending: true })
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((r) => toCamel<HealthItem>(r));
+}
+
+export async function addHealthItem(
+  section: HealthSection,
+  name: string,
+  extras: { emoji?: string; priority?: string; frequency?: string; notes?: string } = {}
+): Promise<HealthItem> {
+  const userId = requireUserId();
+  const { data: existing } = await supabase
+    .from('health_items')
+    .select('sort_order')
+    .eq('user_id', userId)
+    .eq('section', section)
+    .order('sort_order', { ascending: false })
+    .limit(1);
+  const maxOrder = existing && existing.length > 0 ? existing[0].sort_order : -1;
+  const now = Date.now();
+  const { data, error } = await supabase
+    .from('health_items')
+    .insert({
+      user_id: userId,
+      section,
+      name,
+      value: '',
+      link: '',
+      date: '',
+      where_at: '',
+      frequency: extras.frequency || '',
+      emoji: extras.emoji || '',
+      priority: extras.priority || '',
+      notes: extras.notes || '',
+      sort_order: maxOrder + 1,
+      created_at: now,
+      updated_at: now,
+    })
+    .select()
+    .single();
+  if (error) throw error;
+  return toCamel<HealthItem>(data);
+}
+
+export async function updateHealthItem(id: string, updates: Partial<Pick<HealthItem, 'name' | 'value' | 'link' | 'date' | 'whereAt' | 'frequency' | 'emoji' | 'priority' | 'notes'>>): Promise<void> {
+  const patch: Record<string, unknown> = { updated_at: Date.now() };
+  if (updates.name !== undefined) patch.name = updates.name;
+  if (updates.value !== undefined) patch.value = updates.value;
+  if (updates.link !== undefined) patch.link = updates.link;
+  if (updates.date !== undefined) patch.date = updates.date;
+  if (updates.whereAt !== undefined) patch.where_at = updates.whereAt;
+  if (updates.frequency !== undefined) patch.frequency = updates.frequency;
+  if (updates.emoji !== undefined) patch.emoji = updates.emoji;
+  if (updates.priority !== undefined) patch.priority = updates.priority;
+  if (updates.notes !== undefined) patch.notes = updates.notes;
+  const { error } = await supabase.from('health_items').update(patch).eq('id', id);
+  if (error) throw error;
+}
+
+export async function deleteHealthItem(id: string): Promise<void> {
+  const { error } = await supabase.from('health_items').delete().eq('id', id);
+  if (error) throw error;
 }
