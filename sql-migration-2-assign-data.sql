@@ -1,23 +1,24 @@
--- SQL Script #2: Migrate existing data to Wesley's account
+-- SQL Script #2: Assign existing (pre-auth) rows to the owner account
+-- Replace 00000000-0000-0000-0000-000000000000 with your auth.users id before running
 -- Run this in Supabase SQL Editor
 
--- Assign all existing rows to Wesley
-UPDATE routines SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE completions SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE todos SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE sections SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE life_goals SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE yearly_goals SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE quarterly_goals SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE journal_entries SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE reading_notes SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE friends SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE friend_connections SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE cookie_jar SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE quick_notes SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE user_settings SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE monthly_reflections SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
-UPDATE analytics_events SET user_id = 'YOUR_USER_ID' WHERE user_id IS NULL;
+-- Assign all existing rows to the owner
+UPDATE routines SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE completions SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE todos SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE sections SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE life_goals SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE yearly_goals SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE quarterly_goals SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE journal_entries SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE reading_notes SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE friends SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE friend_connections SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE cookie_jar SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE quick_notes SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE user_settings SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE monthly_reflections SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
+UPDATE analytics_events SET user_id = '00000000-0000-0000-0000-000000000000' WHERE user_id IS NULL;
 
 -- Make user_id NOT NULL on all tables
 ALTER TABLE routines ALTER COLUMN user_id SET NOT NULL;

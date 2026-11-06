@@ -2,3 +2,9 @@ node_modules/
 dist/
 .env
 .env.local
+.env.*.local
+.DS_Store
+supabase/.temp/
+.claude/settings.local.json
+# Personal content kept out of the public repo
+public/memorial/
