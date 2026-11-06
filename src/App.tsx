@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useAuth } from './AuthContext';
 import { LoginPage } from './LoginPage';
-import { IS_SAMPLE } from './sample/sampleMode';
+import { IS_SAMPLE, SAMPLE_OPEN_REFLECTION } from './sample/sampleMode';
 import { trackEvent, trackFeatureUsed, trackSessionStart } from './analytics';
 import { useUndo } from './useUndo';
 import { ToastContainer, ToastItem } from './Toast';
@@ -1704,6 +1704,18 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
       return [saved, ...prev];
     });
   };
+
+  // Sample mode screenshot hook: `?sample&reflection` opens last month's reflection.
+  useEffect(() => {
+    if (!SAMPLE_OPEN_REFLECTION || monthlyReflections.length === 0 || showMonthlyReflection) return;
+    const d = new Date();
+    const prev = new Date(d.getFullYear(), d.getMonth() - 1, 1);
+    const m = `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}`;
+    setMonthlyReflectionMonth(m);
+    setCurrentMonthlyReflection(monthlyReflections.find((r) => r.month === m) || null);
+    setShowMonthlyReflection(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthlyReflections.length]);
 
   const handleChangeReflectionMonth = async (month: string) => {
     setMonthlyReflectionMonth(month);

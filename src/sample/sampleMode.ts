@@ -6,3 +6,11 @@ export const IS_SAMPLE: boolean =
   import.meta.env.DEV &&
   (import.meta.env.VITE_SAMPLE === '1' ||
     (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('sample')));
+
+// Screenshot helpers (sample mode only): show a couple of goals expanded, and
+// `?sample&reflection` opens last month's reflection once data has loaded.
+if (IS_SAMPLE) {
+  try { localStorage.setItem('expandedGoals', JSON.stringify(['qg0', 'qg1'])); } catch { /* ignore */ }
+}
+export const SAMPLE_OPEN_REFLECTION: boolean =
+  IS_SAMPLE && typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('reflection');

@@ -109,9 +109,14 @@ export function buildSampleTables(): Record<string, Row[]> {
     ['Ship v2 onboarding flow', 's-today', false],
     ['Write release notes', 's-today', true, 1],
     ['QA the empty states on mobile', 's-today', false, 1],
+    ['iPhone SE layout', 's-today', true, 2],
+    ['Android back button closes the modal', 's-today', false, 2],
+    ['Record a 60-second demo', 's-today', false, 1],
     ['Review Priya\'s design doc', 's-today', true],
+    ['Plan Lena\'s birthday dinner', 's-today', false],
+    ['Book a table for 6 (Saturday 7pm)', 's-today', true, 1],
+    ['Order the cake', 's-today', false, 1],
     ['Groceries: oats, spinach, coffee beans', 's-today', true],
-    ['Pick up dry cleaning before 6', 's-today', false],
     ['30 min walk after lunch', 's-today', true],
     ['Team retro', 's-tomorrow', false],
     ['Draft Q' + quarter + ' planning notes', 's-tomorrow', false],
@@ -264,28 +269,60 @@ export function buildSampleTables(): Record<string, Row[]> {
     const d = new Date(new Date().getFullYear(), new Date().getMonth() + offset, 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   };
-  const reflection = (offset: number, overall: number, extra: Partial<Row>): Row => ({
+  type Ratings = [number, number, number, number, number, number, number, number, number, number, number, number];
+  // Ratings order: overall, health, career, finances, friends, family, romance, fun, growth, mental, environment, productivity (1-10).
+  const reflection = (offset: number, r: Ratings, extra: Partial<Row>): Row => ({
     id: `m${-offset}`, month: monthStr(offset), overall: '', challenges: '', looking_forward: '',
-    rating_overall: overall, rating_health: 4, rating_career: 3.5, rating_finances: 3.5, rating_friends: 4.5,
-    rating_family: 4, rating_romance: 3, rating_fun: 4, rating_growth: 4, rating_mental_health: 3.5,
-    rating_spirituality: 3, rating_environment: 4, rating_productivity: 3.5,
+    rating_overall: r[0], rating_health: r[1], rating_career: r[2], rating_finances: r[3], rating_friends: r[4],
+    rating_family: r[5], rating_romance: r[6], rating_fun: r[7], rating_growth: r[8], rating_mental_health: r[9],
+    rating_spirituality: 0, rating_environment: r[10], rating_productivity: r[11],
     notes_overall: '', notes_health: '', notes_career: '', notes_finances: '', notes_friends: '', notes_family: '',
     notes_romance: '', notes_fun: '', notes_growth: '', notes_mental_health: '', notes_spirituality: '',
     notes_environment: '', notes_productivity: '', overall_life: '',
     created_at: created, updated_at: created, ...extra,
   });
   const monthly_reflections: Row[] = [
-    reflection(-1, 4, {
-      overall_life: 'Steady month. Training is clicking and the side project has real users.',
-      challenges: 'Too many late nights before the beta.',
-      looking_forward: 'Race day and a quieter calendar.',
+    reflection(-1, [8, 8, 7, 7, 9, 7, 8, 8, 8, 8, 7, 8], {
+      notes_overall: 'Best month this year. The pieces finally fit together.',
+      notes_health: 'Hit 25 mi/week with no knee pain. First 10-mile long run on the 19th. Sleep averaged 7h 20m.',
+      notes_career: 'Shipped the v2 onboarding redesign. Activation went from 31% to 38%. Still saying yes to too many meetings.',
+      notes_finances: 'Sabbatical fund at $3,950. Cancelled three subscriptions I never used ($41/mo back).',
+      notes_friends: 'Hosted dinner for 8. Saturday runs with Lena. Called Sam in Portland twice.',
+      notes_family: 'Sunday calls every week. Missed the planning call for Grandma Rosa\'s 90th. Make it up in November.',
+      notes_romance: 'Three months with Jules. Apple picking was the highlight of the fall.',
+      notes_fun: 'Cedar Ridge hike, pottery class, two concerts.',
+      notes_growth: 'Finished 3 books. First full conversation in Spanish with the barista without switching to English.',
+      notes_mental_health: 'Calmer overall. One rough week after the beta bug. The meditation streak carried me through it.',
+      notes_environment: 'Finally hung the art. Desk is still a mess.',
+      notes_productivity: 'Deep work before email most mornings. Laptop closed after 8 on most nights.',
+      overall_life: 'Better than I usually give myself credit for. Body, work, and people are all trending up at once, which hasn\'t happened in a while. The thing to protect now is the boring routine that got me here: early nights, morning runs, one big task before email.',
+      challenges: 'Beta launch week ate my evenings and I let sleep slide for four nights. Said yes to two projects I should have turned down. Knee twinge after the 10-miler.',
+      looking_forward: 'A race-specific training block, Thanksgiving with the whole family, the public launch post for the recipe app, and a long weekend up the coast with Jules.',
     }),
-    reflection(-2, 3.5, {
-      overall_life: 'Busy at work, but kept the routines going.',
-      challenges: 'Skipped strength training for two weeks.',
-      looking_forward: 'Shipping the beta.',
+    reflection(-2, [7, 7, 7, 6.5, 7.5, 7, 7, 6.5, 7.5, 6.5, 6, 7], {
+      notes_overall: 'Solid, a little stretched.',
+      notes_health: 'Built back up to 20 mi/week. Skipped strength for two weeks.',
+      notes_career: 'Beta opened to 20 users. Feedback was kinder than I expected.',
+      notes_friends: 'Theo\'s new job celebration. Board game night at Priya\'s.',
+      overall_life: 'Busy at work, but the routines held. I\'m learning that a good month is mostly a lot of ordinary days in a row.',
+      challenges: 'Strength training fell off. Too much screen time on weeknights.',
+      looking_forward: 'Shipping the beta and the first 10-mile run.',
     }),
-    reflection(-3, 3.5, { overall_life: 'Reset month. Moved apartments.' }),
+    reflection(-3, [6.5, 6.5, 6.5, 6, 7, 7.5, 6.5, 7.5, 6.5, 6.5, 6, 6], {
+      overall_life: 'Summer month. Fun was high, focus was low, and that was fine.',
+      challenges: 'Travel wrecked the running schedule.',
+      looking_forward: 'Getting back into a rhythm in the fall.',
+    }),
+    reflection(-4, [6.5, 7, 6, 6, 6.5, 7, 6, 7, 6.5, 6.5, 5.5, 6.5], {
+      overall_life: 'Steady. Started the half marathon plan.',
+      challenges: 'Apartment still half unpacked.',
+      looking_forward: 'Camping trip with Theo and Lena.',
+    }),
+    reflection(-5, [5.5, 6, 5.5, 5, 6, 6.5, 5.5, 5.5, 6, 5, 4.5, 5.5], {
+      overall_life: 'Reset month. Moved apartments and everything else waited.',
+      challenges: 'Moving stress, not much sleep.',
+      looking_forward: 'Settling into the new place.',
+    }),
   ];
 
   return {

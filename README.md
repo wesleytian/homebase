@@ -2,7 +2,22 @@
 
 One place for your goals, habits, to-dos, and reflections.
 
-![Dashboard](docs/screenshots/dashboard.png)
+![Dashboard](docs/screenshots/dashboard.jpg)
+
+**Monthly reflection:** rate each area of life, keep notes, and track a weighted score over time.
+
+<p>
+  <img src="docs/screenshots/monthly-reflection.jpg" width="49%" alt="Monthly reflection ratings" />
+  <img src="docs/screenshots/monthly-reflection-summary.jpg" width="49%" alt="Monthly reflection summary" />
+</p>
+
+**Nested to-dos, routines with streaks, and goals**
+
+<p>
+  <img src="docs/screenshots/todos.jpg" width="38%" alt="Nested to-dos" />
+  <img src="docs/screenshots/routines.jpg" width="30%" alt="Routines with streaks" />
+  <img src="docs/screenshots/goals.jpg" width="28%" alt="Goals" />
+</p>
 
 <p>
   <img src="docs/screenshots/journal.png" width="49%" alt="Journal" />
