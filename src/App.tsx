@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { useAuth } from './AuthContext';
 import { LoginPage } from './LoginPage';
+import { IS_SAMPLE } from './sample/sampleMode';
 import { trackEvent, trackFeatureUsed, trackSessionStart } from './analytics';
 import { useUndo } from './useUndo';
 import { ToastContainer, ToastItem } from './Toast';
@@ -161,7 +162,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   const CACHE_VERSION = 3;
   const [cachedData] = useState(() => {
     try {
-      const raw = localStorage.getItem('dashboardCache');
+      const raw = IS_SAMPLE ? null : localStorage.getItem('dashboardCache');
       if (raw) {
         const parsed = JSON.parse(raw);
         // Invalidate old cache versions
@@ -313,7 +314,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
   // Sleep reminder - show once per session if past midnight
   useEffect(() => {
     const hour = new Date().getHours();
-    if (hour >= 0 && hour < 5) {
+    if (hour >= 0 && hour < 5 && !IS_SAMPLE) {
       setShowSleepModal(true);
     }
   }, []);
@@ -498,7 +499,7 @@ function AppContent({ onSignOut }: { onSignOut: () => Promise<void> }) {
     getEarliestCompletionWeek().then(setEarliestWeekStart).catch(() => {});
 
     // Cache for stale-while-revalidate on next load
-    try {
+    if (!IS_SAMPLE) try {
       localStorage.setItem('dashboardCache', JSON.stringify({
         version: CACHE_VERSION,
         ts: Date.now(),
