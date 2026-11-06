@@ -43,15 +43,9 @@ You need Node 18+, Yarn, and your own Supabase project.
 
 2. **Set up Supabase**
 
-   In the Supabase SQL editor, run, in order:
-
-   - `supabase-schema.sql` (the base tables)
-   - `sql-migration-1-add-user-id.sql` (adds `user_id` and per-user RLS policies)
-   - everything in `supabase/migrations/`, oldest first
+   Create a new project at [supabase.com](https://supabase.com). In its SQL editor, paste and run `supabase/schema.sql`. That one file creates every table, column, index, row-level security policy, and function the app uses. It's safe to run again.
 
    Then turn on the Google provider under Authentication → Providers and add your local and deployed URLs to the redirect allow list.
-
-   Heads up: the checked-in SQL doesn't create every table and column the app uses yet. `quick_notes`, `user_settings`, `monthly_reflections`, `analytics_events`, and `finances` are missing, along with a few columns (routine streak fields, `todos.completed_at`, `sections.parent_id`). `src/db.ts` shows what each one needs.
 
 3. **Environment**
 
@@ -88,4 +82,4 @@ Sample mode swaps the Supabase client for an in-memory one loaded with fictional
 
 Each user's data lives in Supabase. Every row has a `user_id`, and row-level security policies only let a signed-in user read and write their own rows. The anon key in the client is public by design. RLS is what keeps data separate.
 
-The `supabase/legacy/` folder holds one-off scripts from the move to Supabase and multi-user auth. You don't need them for a new setup.
+`supabase-schema.sql`, `sql-migration-1-add-user-id.sql`, `supabase/migrations/`, and `supabase/legacy/` are the history of how the original database evolved. You don't need them for a new setup.
